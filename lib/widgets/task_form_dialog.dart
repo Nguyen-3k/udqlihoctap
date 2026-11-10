@@ -160,6 +160,9 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
       priority: _selectedPriority,
       status: _selectedStatus,
       notes: notes,
+      understandingLevel: widget.initialTask?.understandingLevel,
+      reviewNotes: widget.initialTask?.reviewNotes,
+      actualMinutes: widget.initialTask?.actualMinutes,
     );
 
     widget.onSave(taskToSave);
@@ -172,7 +175,7 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
     final screenHeight = MediaQuery.of(context).size.height;
 
     return Dialog(
-      backgroundColor: AppColors.surface,
+      backgroundColor: context.surfaceColor,
       insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: ConstrainedBox(
@@ -194,7 +197,7 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: AppColors.primaryContainer,
+                        color: context.primaryContainerColor,
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Icon(
@@ -211,24 +214,24 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
                         isEditing
                             ? 'Chỉnh sửa công việc'
                             : 'Thêm công việc mới',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
-                          color: AppColors.textPrimary,
+                          color: context.textPrimaryColor,
                         ),
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(
+                      icon: Icon(
                         Icons.close_rounded,
-                        color: AppColors.textSecondary,
+                        color: context.textSecondaryColor,
                       ),
                       onPressed: () => Navigator.of(context).pop(),
                     ),
                   ],
                 ),
                 const SizedBox(height: 12),
-                const Divider(height: 1, color: AppColors.border),
+                Divider(height: 1, color: context.borderColor),
                 const SizedBox(height: 12),
 
                 // Nội dung form cuộn mượt mà
@@ -239,9 +242,9 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
                       // Tiêu đề
                       TextFormField(
                         controller: _titleController,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 15,
-                          color: AppColors.textPrimary,
+                          color: context.textPrimaryColor,
                         ),
                         decoration: const InputDecoration(
                           labelText: 'Tiêu đề công việc *',
@@ -265,9 +268,9 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
                             )
                             ? _selectedSubjectId
                             : _effectiveSubjects.first.id,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 15,
-                          color: AppColors.textPrimary,
+                          color: context.textPrimaryColor,
                         ),
                         decoration: const InputDecoration(
                           labelText: 'Môn học *',
@@ -324,9 +327,9 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
                           ),
                           child: Text(
                             _formatDateTime(_selectedDeadline),
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 15,
-                              color: AppColors.textPrimary,
+                              color: context.textPrimaryColor,
                             ),
                           ),
                         ),
@@ -337,9 +340,9 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
                       TextFormField(
                         controller: _durationController,
                         keyboardType: TextInputType.number,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 15,
-                          color: AppColors.textPrimary,
+                          color: context.textPrimaryColor,
                         ),
                         decoration: const InputDecoration(
                           labelText: 'Thời lượng dự kiến (phút)',
@@ -360,12 +363,12 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
                       const SizedBox(height: 16),
 
                       // Mức độ ưu tiên
-                      const Text(
+                      Text(
                         'Mức độ ưu tiên',
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
-                          color: AppColors.textSecondary,
+                          color: context.textSecondaryColor,
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -376,20 +379,22 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
                             states,
                           ) {
                             if (states.contains(WidgetState.selected)) {
-                              return AppColors.primaryContainer;
+                              return context.primaryContainerColor;
                             }
-                            return AppColors.surface;
+                            return context.surfaceColor;
                           }),
                           foregroundColor: WidgetStateProperty.resolveWith((
                             states,
                           ) {
                             if (states.contains(WidgetState.selected)) {
-                              return AppColors.primary;
+                              return context.isDark
+                                  ? AppColors.primaryLight
+                                  : AppColors.primary;
                             }
-                            return AppColors.textSecondary;
+                            return context.textSecondaryColor;
                           }),
-                          side: const WidgetStatePropertyAll(
-                            BorderSide(color: AppColors.border, width: 1),
+                          side: WidgetStatePropertyAll(
+                            BorderSide(color: context.borderColor, width: 1),
                           ),
                           shape: WidgetStatePropertyAll(
                             RoundedRectangleBorder(
@@ -430,12 +435,12 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
                       const SizedBox(height: 16),
 
                       // Trạng thái công việc
-                      const Text(
+                      Text(
                         'Trạng thái',
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
-                          color: AppColors.textSecondary,
+                          color: context.textSecondaryColor,
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -446,20 +451,22 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
                             states,
                           ) {
                             if (states.contains(WidgetState.selected)) {
-                              return AppColors.primaryContainer;
+                              return context.primaryContainerColor;
                             }
-                            return AppColors.surface;
+                            return context.surfaceColor;
                           }),
                           foregroundColor: WidgetStateProperty.resolveWith((
                             states,
                           ) {
                             if (states.contains(WidgetState.selected)) {
-                              return AppColors.primary;
+                              return context.isDark
+                                  ? AppColors.primaryLight
+                                  : AppColors.primary;
                             }
-                            return AppColors.textSecondary;
+                            return context.textSecondaryColor;
                           }),
-                          side: const WidgetStatePropertyAll(
-                            BorderSide(color: AppColors.border, width: 1),
+                          side: WidgetStatePropertyAll(
+                            BorderSide(color: context.borderColor, width: 1),
                           ),
                           shape: WidgetStatePropertyAll(
                             RoundedRectangleBorder(
@@ -503,9 +510,9 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
                       TextFormField(
                         controller: _notesController,
                         maxLines: 3,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 15,
-                          color: AppColors.textPrimary,
+                          color: context.textPrimaryColor,
                         ),
                         decoration: const InputDecoration(
                           labelText: 'Ghi chú / Nội dung khó hiểu',
@@ -520,7 +527,7 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
                 ),
 
                 const SizedBox(height: 16),
-                const Divider(height: 1, color: AppColors.border),
+                Divider(height: 1, color: context.borderColor),
                 const SizedBox(height: 16),
 
                 // Footer Buttons (Chuẩn chiều cao 44-48dp)

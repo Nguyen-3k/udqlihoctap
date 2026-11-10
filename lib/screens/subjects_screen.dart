@@ -5,9 +5,9 @@ import '../theme/app_colors.dart';
 import '../widgets/info_card.dart';
 import 'subject_detail_screen.dart';
 
-/// Màn hình Môn học & Chủ đề.
-/// Quản lý phân loại môn học, hiển thị số lượng nhiệm vụ, hỗ trợ thêm, sửa, xóa (có kiểm tra ràng buộc)
-/// và nhấn vào môn học để mở màn hình chi tiết nhiệm vụ theo môn.
+/// Màn hình Danh sách Môn học (SubjectsScreen).
+/// Hiển thị thẻ môn học với biểu tượng, màu sắc, tên, mô tả, tổng số việc, số việc đã xong và thanh tiến độ thực tế.
+/// Hỗ trợ thêm, sửa, xóa môn học an toàn (có chuyển giao nhiệm vụ) và nhấn vào thẻ để mở màn hình Chi tiết môn học.
 class SubjectsScreen extends StatelessWidget {
   final List<Subject> subjects;
   final List<StudyTask> tasks;
@@ -35,7 +35,7 @@ class SubjectsScreen extends StatelessWidget {
     required this.onAddTaskForSubject,
   });
 
-  // Danh mục màu gợi ý
+  // Danh mục màu đại diện gợi ý
   static const List<Color> _availableColors = [
     Color(0xFF3B5BDB), // Indigo
     Color(0xFF0284C7), // Sky Blue
@@ -70,16 +70,16 @@ class SubjectsScreen extends StatelessWidget {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          backgroundColor: AppColors.surface,
+          backgroundColor: context.surfaceColor,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
           ),
           title: Text(
             isEditing ? 'Chỉnh sửa môn học' : 'Thêm môn học mới',
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
-              color: AppColors.textPrimary,
+              color: context.textPrimaryColor,
             ),
           ),
           content: SingleChildScrollView(
@@ -107,12 +107,12 @@ class SubjectsScreen extends StatelessWidget {
                 const SizedBox(height: 16),
 
                 // Chọn màu sắc
-                const Text(
+                Text(
                   'Màu đại diện:',
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
-                    color: AppColors.textSecondary,
+                    color: context.textSecondaryColor,
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -160,12 +160,12 @@ class SubjectsScreen extends StatelessWidget {
                 const SizedBox(height: 16),
 
                 // Chọn biểu tượng
-                const Text(
+                Text(
                   'Biểu tượng môn học:',
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
-                    color: AppColors.textSecondary,
+                    color: context.textSecondaryColor,
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -182,13 +182,13 @@ class SubjectsScreen extends StatelessWidget {
                         height: 38,
                         decoration: BoxDecoration(
                           color: isSelected
-                              ? AppColors.primaryContainer
-                              : AppColors.surfaceMuted,
+                              ? context.primaryContainerColor
+                              : context.surfaceMutedColor,
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
                             color: isSelected
                                 ? AppColors.primary
-                                : AppColors.border,
+                                : context.borderColor,
                             width: 1.2,
                           ),
                         ),
@@ -197,7 +197,7 @@ class SubjectsScreen extends StatelessWidget {
                           size: 20,
                           color: isSelected
                               ? AppColors.primary
-                              : AppColors.textSecondary,
+                              : context.textSecondaryColor,
                         ),
                       ),
                     );
@@ -262,20 +262,20 @@ class SubjectsScreen extends StatelessWidget {
       showDialog(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          backgroundColor: AppColors.surface,
+          backgroundColor: dialogContext.surfaceColor,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
           ),
-          title: const Text(
+          title: Text(
             'Xác nhận xóa môn học',
             style: TextStyle(
               fontWeight: FontWeight.bold,
-              color: AppColors.textPrimary,
+              color: dialogContext.textPrimaryColor,
             ),
           ),
           content: Text(
             'Bạn có chắc chắn muốn xóa môn "${subject.name}" không? Môn này hiện chưa có nhiệm vụ nào.',
-            style: const TextStyle(color: AppColors.textSecondary),
+            style: TextStyle(color: dialogContext.textSecondaryColor),
           ),
           actions: [
             OutlinedButton(
@@ -307,20 +307,20 @@ class SubjectsScreen extends StatelessWidget {
       showDialog(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          backgroundColor: AppColors.surface,
+          backgroundColor: dialogContext.surfaceColor,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
           ),
-          title: const Row(
+          title: Row(
             children: [
-              Icon(Icons.warning_amber_rounded, color: AppColors.error),
-              SizedBox(width: 8),
+              const Icon(Icons.warning_amber_rounded, color: AppColors.error),
+              const SizedBox(width: 8),
               Text(
                 'Không thể xóa môn học',
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 17,
-                  color: AppColors.textPrimary,
+                  color: dialogContext.textPrimaryColor,
                 ),
               ),
             ],
@@ -328,7 +328,10 @@ class SubjectsScreen extends StatelessWidget {
           content: Text(
             'Môn "${subject.name}" hiện đang có $taskCount nhiệm vụ và đây là môn học duy nhất còn lại trong ứng dụng.\n\n'
             'Để tránh nhiệm vụ bị mất hoặc mồ côi, bạn vui lòng tạo thêm môn học mới hoặc xóa hết nhiệm vụ trước khi xóa môn này.',
-            style: const TextStyle(color: AppColors.textSecondary, height: 1.4),
+            style: TextStyle(
+              color: dialogContext.textSecondaryColor,
+              height: 1.4,
+            ),
           ),
           actions: [
             FilledButton(
@@ -348,21 +351,21 @@ class SubjectsScreen extends StatelessWidget {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          backgroundColor: AppColors.surface,
+          backgroundColor: dialogContext.surfaceColor,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
           ),
-          title: const Row(
+          title: Row(
             children: [
-              Icon(Icons.swap_horiz_rounded, color: AppColors.primary),
-              SizedBox(width: 8),
+              const Icon(Icons.swap_horiz_rounded, color: AppColors.primary),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   'Chuyển nhiệm vụ trước khi xóa',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 16,
-                    color: AppColors.textPrimary,
+                    color: dialogContext.textPrimaryColor,
                   ),
                 ),
               ),
@@ -374,15 +377,18 @@ class SubjectsScreen extends StatelessWidget {
             children: [
               Text(
                 'Môn "${subject.name}" đang có $taskCount nhiệm vụ.',
-                style: const TextStyle(
+                style: TextStyle(
                   fontWeight: FontWeight.w600,
-                  color: AppColors.textPrimary,
+                  color: dialogContext.textPrimaryColor,
                 ),
               ),
               const SizedBox(height: 6),
-              const Text(
+              Text(
                 'Để tránh mất dữ liệu hoặc nhiệm vụ bị mồ côi, vui lòng chọn môn học để chuyển giao toàn bộ các nhiệm vụ này sang:',
-                style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                style: TextStyle(
+                  fontSize: 13,
+                  color: dialogContext.textSecondaryColor,
+                ),
               ),
               const SizedBox(height: 14),
               DropdownButtonFormField<String>(
@@ -444,6 +450,7 @@ class SubjectsScreen extends StatelessWidget {
           onAddTaskForThisSubject: () => onAddTaskForSubject(subject),
           onEditSubject: () =>
               _showSubjectFormDialog(context, initialSubject: subject),
+          onUpdateSubject: onUpdateSubject,
           onDeleteSubject: () {
             Navigator.of(context).pop(); // Đóng màn chi tiết trước
             _confirmDeleteSubject(context, subject);
@@ -461,7 +468,7 @@ class SubjectsScreen extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Expanded(
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -470,14 +477,14 @@ class SubjectsScreen extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.bold,
-                      color: AppColors.textPrimary,
+                      color: context.textPrimaryColor,
                     ),
                   ),
-                  SizedBox(height: 4),
+                  const SizedBox(height: 4),
                   Text(
-                    'Quản lý danh mục bài học & phân loại',
+                    'Quản lý ${subjects.length} môn học & tiến độ bài học',
                     style: TextStyle(
-                      color: AppColors.textSecondary,
+                      color: context.textSecondaryColor,
                       fontSize: 13,
                     ),
                   ),
@@ -496,17 +503,53 @@ class SubjectsScreen extends StatelessWidget {
 
         if (subjects.isEmpty)
           Container(
-            padding: const EdgeInsets.all(32),
+            padding: const EdgeInsets.symmetric(vertical: 44, horizontal: 20),
             decoration: BoxDecoration(
-              color: AppColors.surface,
+              color: context.surfaceColor,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.border),
+              border: Border.all(color: context.borderColor),
             ),
-            child: const Center(
-              child: Text(
-                'Chưa có môn học nào. Nhấn "+ Thêm môn" để tạo mới!',
-                style: TextStyle(color: AppColors.textSecondary),
-              ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: context.primaryContainerColor,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.school_outlined,
+                    size: 40,
+                    color: AppColors.primary,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Chưa có môn học nào',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: context.textPrimaryColor,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Tạo môn học đầu tiên để bắt đầu phân loại nhiệm vụ và theo dõi tiến độ tự học.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: context.textSecondaryColor,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                FilledButton.icon(
+                  onPressed: () => _showSubjectFormDialog(context),
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Tạo môn học đầu tiên'),
+                ),
+              ],
             ),
           )
         else
@@ -520,109 +563,201 @@ class SubjectsScreen extends StatelessWidget {
             final completedCount = subjectTasks
                 .where((t) => t.isCompleted)
                 .length;
+            final progress = taskCount > 0 ? (completedCount / taskCount) : 0.0;
+            final percentInt = (progress * 100).toInt();
 
-            return InfoCard(
-              icon: subject.icon,
-              iconColor: subject.color,
-              title: subject.name,
-              subtitle:
-                  '${subject.description}\n$taskCount công việc ($completedCount đã hoàn thành)',
-              onTap: () => _openSubjectDetail(context, subject),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: subject.color.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      '$taskCount việc',
-                      style: TextStyle(
-                        color: subject.color,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                  PopupMenuButton<String>(
-                    padding: EdgeInsets.zero,
-                    icon: const Icon(
-                      Icons.more_vert_rounded,
-                      color: AppColors.textSecondary,
-                      size: 20,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    onSelected: (val) {
-                      if (val == 'detail') {
-                        _openSubjectDetail(context, subject);
-                      } else if (val == 'edit') {
-                        _showSubjectFormDialog(
-                          context,
-                          initialSubject: subject,
-                        );
-                      } else if (val == 'delete') {
-                        _confirmDeleteSubject(context, subject);
-                      }
-                    },
-                    itemBuilder: (context) => [
-                      const PopupMenuItem(
-                        value: 'detail',
-                        child: Row(
+            return Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: context.surfaceColor,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: context.borderColor, width: 1),
+              ),
+              child: Material(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(16),
+                child: InkWell(
+                  onTap: () => _openSubjectDetail(context, subject),
+                  borderRadius: BorderRadius.circular(16),
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(Icons.visibility_outlined, size: 18),
-                            SizedBox(width: 8),
-                            Text('Xem nhiệm vụ'),
-                          ],
-                        ),
-                      ),
-                      const PopupMenuItem(
-                        value: 'edit',
-                        child: Row(
-                          children: [
-                            Icon(Icons.edit_outlined, size: 18),
-                            SizedBox(width: 8),
-                            Text('Chỉnh sửa'),
-                          ],
-                        ),
-                      ),
-                      const PopupMenuItem(
-                        value: 'delete',
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.delete_outline_rounded,
-                              color: AppColors.error,
-                              size: 18,
+                            // Biểu tượng môn học với màu đại diện
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: subject.color.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Center(
+                                child: Icon(
+                                  subject.icon,
+                                  color: subject.color,
+                                  size: 24,
+                                ),
+                              ),
                             ),
-                            SizedBox(width: 8),
+                            const SizedBox(width: 12),
+
+                            // Tên và mô tả ngắn môn học
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    subject.name,
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      color: context.textPrimaryColor,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    subject.description.isNotEmpty
+                                        ? subject.description
+                                        : 'Chưa có mô tả cho môn học này',
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: context.textSecondaryColor,
+                                      height: 1.3,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                            // Menu thao tác nhanh
+                            PopupMenuButton<String>(
+                              padding: EdgeInsets.zero,
+                              icon: Icon(
+                                Icons.more_vert_rounded,
+                                color: context.textSecondaryColor,
+                                size: 20,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              onSelected: (val) {
+                                if (val == 'detail') {
+                                  _openSubjectDetail(context, subject);
+                                } else if (val == 'edit') {
+                                  _showSubjectFormDialog(
+                                    context,
+                                    initialSubject: subject,
+                                  );
+                                } else if (val == 'delete') {
+                                  _confirmDeleteSubject(context, subject);
+                                }
+                              },
+                              itemBuilder: (context) => [
+                                const PopupMenuItem(
+                                  value: 'detail',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.visibility_outlined, size: 18),
+                                      SizedBox(width: 8),
+                                      Text('Xem chi tiết'),
+                                    ],
+                                  ),
+                                ),
+                                const PopupMenuItem(
+                                  value: 'edit',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.edit_outlined, size: 18),
+                                      SizedBox(width: 8),
+                                      Text('Chỉnh sửa'),
+                                    ],
+                                  ),
+                                ),
+                                const PopupMenuItem(
+                                  value: 'delete',
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.delete_outline_rounded,
+                                        color: AppColors.error,
+                                        size: 18,
+                                      ),
+                                      SizedBox(width: 8),
+                                      Text(
+                                        'Xóa môn',
+                                        style: TextStyle(
+                                          color: AppColors.error,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 12),
+                        Divider(height: 1, color: context.borderSubtleColor),
+                        const SizedBox(height: 10),
+
+                        // Hàng tiến độ hoàn thành thực tế
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
                             Text(
-                              'Xóa môn',
-                              style: TextStyle(color: AppColors.error),
+                              taskCount == 0
+                                  ? 'Chưa có công việc'
+                                  : '$completedCount/$taskCount việc đã hoàn thành',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: context.textSecondaryColor,
+                              ),
+                            ),
+                            Text(
+                              '$percentInt%',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: subject.color,
+                              ),
                             ),
                           ],
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 6),
+
+                        // Thanh tiến độ trực quan theo màu môn học
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: LinearProgressIndicator(
+                            value: progress,
+                            minHeight: 6,
+                            backgroundColor: context.surfaceMutedColor,
+                            color: subject.color,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ],
+                ),
               ),
             );
           }),
 
-        const SizedBox(height: 16),
-        const Text(
+        const SizedBox(height: 14),
+        Text(
           'Hướng dẫn & Gợi ý',
           style: TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.bold,
-            color: AppColors.textPrimary,
+            color: context.textPrimaryColor,
           ),
         ),
         const SizedBox(height: 8),
@@ -631,7 +766,7 @@ class SubjectsScreen extends StatelessWidget {
           iconColor: AppColors.primary,
           title: 'Nhấn vào môn để xem chi tiết',
           subtitle:
-              'Bấm vào bất kỳ thẻ môn học nào để xem toàn bộ danh sách bài tập và thêm nhiệm vụ riêng cho môn đó.',
+              'Bấm vào bất kỳ thẻ môn học nào để xem toàn bộ danh sách bài tập, theo dõi tiến độ và thêm nhiệm vụ riêng cho môn đó.',
         ),
       ],
     );

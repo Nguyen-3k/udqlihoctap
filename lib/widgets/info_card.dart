@@ -27,10 +27,10 @@ class InfoCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       elevation: 0,
-      color: AppColors.surface,
+      color: context.surfaceColor,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: const BorderSide(color: AppColors.border, width: 1),
+        side: BorderSide(color: context.borderColor, width: 1),
       ),
       child: InkWell(
         onTap: onTap,
@@ -45,7 +45,9 @@ class InfoCard extends StatelessWidget {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: effectiveColor.withValues(alpha: 0.1),
+                  color: effectiveColor.withValues(
+                    alpha: context.isDark ? 0.2 : 0.1,
+                  ),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Center(
@@ -60,17 +62,17 @@ class InfoCard extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontWeight: FontWeight.w600,
                         fontSize: 15,
-                        color: AppColors.textPrimary,
+                        color: context.textPrimaryColor,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       subtitle,
-                      style: const TextStyle(
-                        color: AppColors.textSecondary,
+                      style: TextStyle(
+                        color: context.textSecondaryColor,
                         fontSize: 13,
                         height: 1.35,
                       ),

@@ -6,17 +6,20 @@ import '../models/study_task.dart';
 import '../models/subject.dart';
 import '../models/task_priority.dart';
 import '../models/task_status.dart';
+import '../models/understanding_level.dart';
 
 /// Lớp quản lý cơ sở dữ liệu SQLite cục bộ cho ExamPilot.
-/// Hỗ trợ lưu trữ bền vững cho cả `subjects` (môn học) và `study_tasks` (nhiệm vụ).
+/// Hỗ trợ lưu trữ bền vững cho `subjects`, `study_tasks` và `study_activities` (Study Streak).
 /// Chặn cuộc gọi sqflite trên Web để giữ an toàn cho trình duyệt.
 class DatabaseHelper {
   static const _databaseName = 'exampilot.db';
   static const _databaseVersion =
-      2; // Nâng version lên 2 để hỗ trợ bảng subjects và liên kết subject_id
+      6; // Nâng version lên 6: Hồ sơ cá nhân, Mục tiêu & Cài đặt (Giai đoạn 5)
 
   static const tableTasks = 'study_tasks';
   static const tableSubjects = 'subjects';
+  static const tableActivities = 'study_activities';
+  static const tableProfile = 'user_profile';
 
   // Định nghĩa tên các cột trong bảng study_tasks
   static const columnId = 'id';
@@ -25,9 +28,12 @@ class DatabaseHelper {
   static const columnSubject = 'subject';
   static const columnDeadline = 'deadline';
   static const columnEstimatedMinutes = 'estimated_minutes';
+  static const columnActualMinutes = 'actual_minutes';
   static const columnPriority = 'priority';
   static const columnStatus = 'status';
   static const columnNotes = 'notes';
+  static const columnUnderstandingLevel = 'understanding_level';
+  static const columnReviewNotes = 'review_notes';
 
   // Định nghĩa tên các cột trong bảng subjects
   static const columnSubjectId = 'id';
@@ -35,6 +41,26 @@ class DatabaseHelper {
   static const columnSubjectDescription = 'description';
   static const columnSubjectIcon = 'icon_code';
   static const columnSubjectColor = 'color_value';
+
+  // Định nghĩa tên các cột trong bảng study_activities (Study Streak & Thống kê G4)
+  static const columnActivityId = 'id';
+  static const columnActivityDate = 'activity_date';
+  static const columnActivityTaskId = 'task_id';
+  static const columnActivityCompletedAt = 'completed_at';
+  static const columnActivityActualMinutes = 'actual_minutes';
+  static const columnActivitySubjectId = 'subject_id';
+
+  // Định nghĩa tên các cột trong bảng user_profile (Hồ sơ & Cài đặt G5)
+  static const columnProfileId = 'id';
+  static const columnProfileName = 'name';
+  static const columnProfileUniversity = 'university';
+  static const columnProfileMajor = 'major';
+  static const columnProfileAcademicYear = 'academic_year';
+  static const columnProfileAvatarId = 'avatar_id';
+  static const columnProfileTargetHours = 'weekly_target_hours';
+  static const columnProfileTargetTasks = 'weekly_target_tasks';
+  static const columnProfileThemeMode = 'theme_mode';
+  static const columnProfileReminderEnabled = 'reminder_enabled';
 
   DatabaseHelper._privateConstructor();
   static final DatabaseHelper instance = DatabaseHelper._privateConstructor();
@@ -87,7 +113,7 @@ class DatabaseHelper {
       )
     ''');
 
-    // 2. Tạo bảng công việc học tập (study_tasks) có khóa ngoại liên kết subject_id
+    // 2. Tạo bảng công việc học tập (study_tasks) có khóa ngoại subject_id, thời lượng thực tế và các trường đánh giá
     await db.execute('''
       CREATE TABLE $tableTasks (
         $columnId TEXT PRIMARY KEY,
@@ -96,9 +122,43 @@ class DatabaseHelper {
         $columnSubject TEXT NOT NULL,
         $columnDeadline TEXT NOT NULL,
         $columnEstimatedMinutes INTEGER NOT NULL,
+        $columnActualMinutes INTEGER,
         $columnPriority TEXT NOT NULL,
         $columnStatus TEXT NOT NULL,
-        $columnNotes TEXT NOT NULL DEFAULT ''
+        $columnNotes TEXT NOT NULL DEFAULT '',
+        $columnUnderstandingLevel TEXT,
+        $columnReviewNotes TEXT
+      )
+    ''');
+
+    // 3. Tạo bảng ghi nhận lịch sử học tập (study_activities) phục vụ Study Streak & Thống kê
+    await db.execute('''
+      CREATE TABLE $tableActivities (
+        $columnActivityId TEXT PRIMARY KEY,
+        $columnActivityDate TEXT NOT NULL,
+        $columnActivityTaskId TEXT,
+        $columnActivityCompletedAt TEXT NOT NULL,
+        $columnActivityActualMinutes INTEGER DEFAULT 0,
+        $columnActivitySubjectId TEXT
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_activity_date ON $tableActivities($columnActivityDate)',
+    );
+
+    // 4. Tạo bảng hồ sơ cá nhân và cài đặt (user_profile)
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $tableProfile (
+        $columnProfileId TEXT PRIMARY KEY,
+        $columnProfileName TEXT NOT NULL DEFAULT '',
+        $columnProfileUniversity TEXT NOT NULL DEFAULT '',
+        $columnProfileMajor TEXT NOT NULL DEFAULT '',
+        $columnProfileAcademicYear TEXT NOT NULL DEFAULT '',
+        $columnProfileAvatarId TEXT NOT NULL DEFAULT 'school',
+        $columnProfileTargetHours REAL NOT NULL DEFAULT 10.0,
+        $columnProfileTargetTasks INTEGER NOT NULL DEFAULT 5,
+        $columnProfileThemeMode TEXT NOT NULL DEFAULT 'system',
+        $columnProfileReminderEnabled INTEGER NOT NULL DEFAULT 0
       )
     ''');
 
@@ -201,6 +261,8 @@ class DatabaseHelper {
         priority: TaskPriority.low,
         status: TaskStatus.completed,
         notes: 'Đã nắm vững align-items và justify-content.',
+        understandingLevel: UnderstandingLevel.mastered,
+        reviewNotes: 'Đã áp dụng thành thạo CSS Flexbox vào bố cục dự án.',
       ),
     ];
 
@@ -262,10 +324,97 @@ class DatabaseHelper {
       await db.rawUpdate(
         "UPDATE $tableTasks SET $columnTaskSubjectId = 'subj_4' WHERE $columnSubject = 'Tiếng Anh' AND ($columnTaskSubjectId IS NULL OR $columnTaskSubjectId = '')",
       );
-      // Với bất kỳ bản ghi nào khác chưa có ID, gán về subj_1 mặc định an toàn
       await db.rawUpdate(
         "UPDATE $tableTasks SET $columnTaskSubjectId = 'subj_1' WHERE $columnTaskSubjectId IS NULL OR $columnTaskSubjectId = ''",
       );
+    }
+
+    if (oldVersion < 3) {
+      // Bổ sung các cột tự đánh giá mức độ hiểu bài vào bảng study_tasks
+      final tableInfo = await db.rawQuery('PRAGMA table_info($tableTasks)');
+      final hasUnderstandingLevel = tableInfo.any(
+        (col) => col['name'] == columnUnderstandingLevel,
+      );
+      if (!hasUnderstandingLevel) {
+        await db.execute(
+          'ALTER TABLE $tableTasks ADD COLUMN $columnUnderstandingLevel TEXT',
+        );
+      }
+
+      final hasReviewNotes = tableInfo.any(
+        (col) => col['name'] == columnReviewNotes,
+      );
+      if (!hasReviewNotes) {
+        await db.execute(
+          'ALTER TABLE $tableTasks ADD COLUMN $columnReviewNotes TEXT',
+        );
+      }
+    }
+
+    if (oldVersion < 4) {
+      // Bổ sung bảng study_activities phục vụ tính năng Study Streak
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS $tableActivities (
+          $columnActivityId TEXT PRIMARY KEY,
+          $columnActivityDate TEXT NOT NULL,
+          $columnActivityTaskId TEXT,
+          $columnActivityCompletedAt TEXT NOT NULL
+        )
+      ''');
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_activity_date ON $tableActivities($columnActivityDate)',
+      );
+    }
+
+    if (oldVersion < 5) {
+      // 1. Bổ sung cột actual_minutes vào bảng study_tasks nếu chưa có
+      final tasksInfo = await db.rawQuery('PRAGMA table_info($tableTasks)');
+      final hasActualMinutes = tasksInfo.any(
+        (col) => col['name'] == columnActualMinutes,
+      );
+      if (!hasActualMinutes) {
+        await db.execute(
+          'ALTER TABLE $tableTasks ADD COLUMN $columnActualMinutes INTEGER',
+        );
+      }
+
+      // 2. Bổ sung cột actual_minutes và subject_id vào bảng study_activities nếu chưa có
+      final activitiesInfo = await db.rawQuery(
+        'PRAGMA table_info($tableActivities)',
+      );
+      final hasActMinutes = activitiesInfo.any(
+        (col) => col['name'] == columnActivityActualMinutes,
+      );
+      if (!hasActMinutes) {
+        await db.execute(
+          'ALTER TABLE $tableActivities ADD COLUMN $columnActivityActualMinutes INTEGER DEFAULT 0',
+        );
+      }
+      final hasActSubjectId = activitiesInfo.any(
+        (col) => col['name'] == columnActivitySubjectId,
+      );
+      if (!hasActSubjectId) {
+        await db.execute(
+          'ALTER TABLE $tableActivities ADD COLUMN $columnActivitySubjectId TEXT',
+        );
+      }
+    }
+
+    if (oldVersion < 6) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS $tableProfile (
+          $columnProfileId TEXT PRIMARY KEY,
+          $columnProfileName TEXT NOT NULL DEFAULT '',
+          $columnProfileUniversity TEXT NOT NULL DEFAULT '',
+          $columnProfileMajor TEXT NOT NULL DEFAULT '',
+          $columnProfileAcademicYear TEXT NOT NULL DEFAULT '',
+          $columnProfileAvatarId TEXT NOT NULL DEFAULT 'school',
+          $columnProfileTargetHours REAL NOT NULL DEFAULT 10.0,
+          $columnProfileTargetTasks INTEGER NOT NULL DEFAULT 5,
+          $columnProfileThemeMode TEXT NOT NULL DEFAULT 'system',
+          $columnProfileReminderEnabled INTEGER NOT NULL DEFAULT 0
+        )
+      ''');
     }
   }
 

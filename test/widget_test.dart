@@ -37,9 +37,12 @@ void main() {
         ${DatabaseHelper.columnSubject} TEXT NOT NULL,
         ${DatabaseHelper.columnDeadline} TEXT NOT NULL,
         ${DatabaseHelper.columnEstimatedMinutes} INTEGER NOT NULL,
+        ${DatabaseHelper.columnActualMinutes} INTEGER,
         ${DatabaseHelper.columnPriority} TEXT NOT NULL,
         ${DatabaseHelper.columnStatus} TEXT NOT NULL,
-        ${DatabaseHelper.columnNotes} TEXT NOT NULL DEFAULT ''
+        ${DatabaseHelper.columnNotes} TEXT NOT NULL DEFAULT '',
+        ${DatabaseHelper.columnUnderstandingLevel} TEXT,
+        ${DatabaseHelper.columnReviewNotes} TEXT
       )
     ''');
 

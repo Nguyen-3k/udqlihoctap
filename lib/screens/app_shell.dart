@@ -1,12 +1,19 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../models/study_activity.dart';
+import '../models/study_streak.dart';
 import '../models/study_task.dart';
 import '../models/subject.dart';
 import '../models/task_priority.dart';
 import '../models/task_status.dart';
+import '../models/understanding_level.dart';
+import '../models/user_profile.dart';
+import '../repositories/profile_repository.dart';
 import '../repositories/subject_repository.dart';
 import '../repositories/task_repository.dart';
 import '../theme/app_colors.dart';
+import '../services/web_storage.dart';
+import '../widgets/task_assessment_dialog.dart';
 import '../widgets/task_detail_sheet.dart';
 import '../widgets/task_form_dialog.dart';
 import 'overview_screen.dart';
@@ -24,8 +31,16 @@ const backgroundColor = AppColors.background;
 class AppShell extends StatefulWidget {
   final TaskRepository? taskRepository;
   final SubjectRepository? subjectRepository;
+  final ProfileRepository? profileRepository;
+  final ValueChanged<ThemeMode>? onThemeModeChanged;
 
-  const AppShell({super.key, this.taskRepository, this.subjectRepository});
+  const AppShell({
+    super.key,
+    this.taskRepository,
+    this.subjectRepository,
+    this.profileRepository,
+    this.onThemeModeChanged,
+  });
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -38,6 +53,7 @@ class _AppShellState extends State<AppShell> {
 
   late final TaskRepository _taskRepository;
   late final SubjectRepository _subjectRepository;
+  late final ProfileRepository _profileRepository;
 
   // Danh mục môn học đồng bộ từ SQLite hoặc Web preview
   List<Subject> _subjects = [];
@@ -45,15 +61,27 @@ class _AppShellState extends State<AppShell> {
   // Danh sách công việc được đồng bộ từ SQLite hoặc Web preview
   List<StudyTask> _tasks = [];
 
+  // Danh sách ngày học tập ghi nhận (Study Streak)
+  Set<String> _activeDates = {};
+
+  // Danh sách các hoạt động học tập ghi nhận (dành cho Thống kê)
+  List<StudyActivity> _activities = [];
+
+  // Thông tin hồ sơ cá nhân, mục tiêu và cài đặt (Giai đoạn 5)
+  UserProfile _userProfile = const UserProfile();
+
   @override
   void initState() {
     super.initState();
     _taskRepository = widget.taskRepository ?? TaskRepository();
     _subjectRepository = widget.subjectRepository ?? SubjectRepository();
+    _profileRepository =
+        widget.profileRepository ??
+        ProfileRepository(useWebPreview: _taskRepository.isWebPreview);
     _loadData();
   }
 
-  /// Tải đồng bộ cả môn học và nhiệm vụ từ các Repository.
+  /// Tải đồng bộ cả môn học, nhiệm vụ, lịch sử ngày học và hoạt động học tập từ các Repository.
   Future<void> _loadData() async {
     setState(() {
       _isLoading = true;
@@ -63,29 +91,51 @@ class _AppShellState extends State<AppShell> {
     try {
       final subjectsFuture = _subjectRepository.getAllSubjects();
       final tasksFuture = _taskRepository.getAllTasks();
+      final activeDatesFuture = _taskRepository.getActiveStudyDates();
+      final activitiesFuture = _taskRepository.getAllActivities();
+      final profileFuture = _profileRepository.getProfile();
 
-      final results = await Future.wait([subjectsFuture, tasksFuture]);
+      final results = await Future.wait([
+        subjectsFuture,
+        tasksFuture,
+        activeDatesFuture,
+        activitiesFuture,
+        profileFuture,
+      ]);
       final loadedSubjects = results[0] as List<Subject>;
       final loadedTasks = results[1] as List<StudyTask>;
+      final loadedActiveDates = results[2] as Set<String>;
+      final loadedActivities = results[3] as List<StudyActivity>;
+      final loadedProfile = results[4] as UserProfile;
 
       if (!mounted) return;
       setState(() {
         _subjects = loadedSubjects;
         _tasks = loadedTasks;
+        _activeDates = loadedActiveDates;
+        _activities = loadedActivities;
+        _userProfile = loadedProfile;
         _isLoading = false;
       });
+      widget.onThemeModeChanged?.call(loadedProfile.flutterThemeMode);
     } catch (e, stackTrace) {
       if (!mounted) return;
       debugPrint('LỖI TRUY XUẤT CƠ SỞ DỮ LIỆU: $e\n$stackTrace');
 
       // Chỉ trên Web (không có sqflite) mới dùng dữ liệu xem trước
       if (kIsWeb) {
+        final webProfile =
+            WebStreakStorage.loadProfile() ?? const UserProfile();
         setState(() {
           _subjects = SubjectRepository.getDefaultSubjects();
           _tasks = _getSampleTasks();
+          _activeDates = WebStreakStorage.loadActiveDates();
+          _activities = WebStreakStorage.loadActivities();
+          _userProfile = webProfile;
           _isLoading = false;
           _errorMessage = null;
         });
+        widget.onThemeModeChanged?.call(webProfile.flutterThemeMode);
         return;
       }
 
@@ -130,9 +180,12 @@ class _AppShellState extends State<AppShell> {
         subject: 'Lập trình Web',
         deadline: now.subtract(const Duration(hours: 2)),
         estimatedMinutes: 30,
+        actualMinutes: 30,
         priority: TaskPriority.low,
         status: TaskStatus.completed,
         notes: 'Đã nắm vững align-items và justify-content.',
+        understandingLevel: UnderstandingLevel.mastered,
+        reviewNotes: 'Đã áp dụng thành thạo CSS Flexbox vào bố cục dự án.',
       ),
     ];
   }
@@ -142,7 +195,9 @@ class _AppShellState extends State<AppShell> {
   void _showNotification(
     String message, {
     bool isError = false,
-    Duration duration = const Duration(milliseconds: 1500),
+    Duration duration = const Duration(milliseconds: 2000),
+    String? actionLabel,
+    VoidCallback? onAction,
   }) {
     if (!mounted) return;
     // Xóa ngay thông báo cũ để không xếp chồng khi người dùng tương tác liên tục
@@ -158,6 +213,13 @@ class _AppShellState extends State<AppShell> {
         margin: const EdgeInsets.only(bottom: 24, left: 24, right: 24),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         backgroundColor: isError ? AppColors.error : null,
+        action: (actionLabel != null && onAction != null)
+            ? SnackBarAction(
+                label: actionLabel,
+                textColor: Colors.amberAccent,
+                onPressed: onAction,
+              )
+            : null,
       ),
     );
   }
@@ -228,6 +290,10 @@ class _AppShellState extends State<AppShell> {
       // 1. Ghi nhận thay đổi xuống repository/database trước
       await _taskRepository.updateTaskStatus(task.id, newStatus);
 
+      // Cập nhật lại lịch sử ngày học (Study Streak) và hoạt động học tập (Statistics)
+      final updatedActiveDates = await _taskRepository.getActiveStudyDates();
+      final updatedActivities = await _taskRepository.getAllActivities();
+
       // 2. Chỉ khi ghi SQLite thành công mới cập nhật giao diện
       if (!mounted) return;
       setState(() {
@@ -236,20 +302,82 @@ class _AppShellState extends State<AppShell> {
           _tasks[index] = _tasks[index].copyWith(status: newStatus);
         }
         task.status = newStatus;
+        _activeDates = updatedActiveDates;
+        _activities = updatedActivities;
       });
 
-      // 3. Thông báo nhanh gọn (1.5s), không xếp chồng và không che nội dung
-      _showNotification(
-        newStatus == TaskStatus.completed
-            ? (kIsWeb
-                  ? 'Đã hoàn thành công việc 🎉 (Xem trước Web)'
-                  : 'Đã hoàn thành công việc 🎉')
-            : 'Đã chuyển về Chưa làm',
-      );
+      // 3. Nếu chuyển sang hoàn thành: Hiển thị thông báo kèm nút "ĐÁNH GIÁ" tiện lợi, không ép buộc
+      if (newStatus == TaskStatus.completed) {
+        _showNotification(
+          kIsWeb
+              ? 'Đã hoàn thành! 🎉 (Xem trước Web)'
+              : 'Đã hoàn thành công việc 🎉',
+          duration: const Duration(seconds: 3),
+          actionLabel: 'ĐÁNH GIÁ',
+          onAction: () => _openAssessmentDialog(task),
+        );
+      } else {
+        _showNotification('Đã chuyển về Chưa làm');
+      }
     } catch (e) {
       if (!mounted) return;
       _showNotification('Lỗi khi cập nhật trạng thái: $e', isError: true);
     }
+  }
+
+  Future<void> _updateTaskAssessment(
+    StudyTask task,
+    UnderstandingLevel? level,
+    String? reviewNotes, [
+    int? actualMinutes,
+  ]) async {
+    try {
+      await _taskRepository.updateTaskAssessment(
+        task.id,
+        level,
+        reviewNotes,
+        actualMinutes,
+      );
+      final updatedActivities = await _taskRepository.getAllActivities();
+      if (!mounted) return;
+      setState(() {
+        final index = _tasks.indexWhere((t) => t.id == task.id);
+        if (index != -1) {
+          _tasks[index] = _tasks[index].copyWith(
+            understandingLevel: level,
+            clearUnderstandingLevel: level == null,
+            reviewNotes: reviewNotes,
+            clearReviewNotes: reviewNotes == null,
+            actualMinutes: actualMinutes,
+            clearActualMinutes: actualMinutes == null,
+          );
+        }
+        task.understandingLevel = level;
+        task.reviewNotes = reviewNotes;
+        task.actualMinutes = actualMinutes;
+        _activities = updatedActivities;
+      });
+      _showNotification(
+        level != null
+            ? 'Đã lưu đánh giá: ${level.label}'
+            : 'Đã cập nhật đánh giá thành công',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      _showNotification('Lỗi khi lưu đánh giá: $e', isError: true);
+    }
+  }
+
+  void _openAssessmentDialog(StudyTask task) {
+    showDialog(
+      context: context,
+      builder: (context) => TaskAssessmentDialog(
+        task: task,
+        onSaveWithDuration: (level, reviewNotes, actualMinutes) {
+          _updateTaskAssessment(task, level, reviewNotes, actualMinutes);
+        },
+      ),
+    );
   }
 
   void _openTaskForm({StudyTask? initialTask, String? preselectedSubjectId}) {
@@ -280,6 +408,7 @@ class _AppShellState extends State<AppShell> {
         onToggleComplete: () => _toggleTaskComplete(task),
         onEdit: () => _openTaskForm(initialTask: task),
         onDelete: () => _deleteTask(task),
+        onAssess: () => _openAssessmentDialog(task),
       ),
     );
   }
@@ -371,6 +500,122 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
+  // --- CÔNG CỤ QUẢN LÝ HỒ SƠ, MỤC TIÊU VÀ CÀI ĐẶT (G5) ---
+
+  Future<void> _updateProfile(UserProfile newProfile) async {
+    try {
+      await _profileRepository.saveProfile(newProfile);
+      if (!mounted) return;
+      setState(() {
+        _userProfile = newProfile;
+      });
+      _showNotification('Đã cập nhật hồ sơ cá nhân thành công');
+    } catch (e) {
+      if (!mounted) return;
+      _showNotification('Lỗi khi lưu hồ sơ: $e', isError: true);
+    }
+  }
+
+  Future<void> _updateGoals(double hours, int tasks) async {
+    try {
+      final updated = await _profileRepository.updateWeeklyGoals(
+        hours: hours,
+        tasks: tasks,
+      );
+      if (!mounted) return;
+      setState(() {
+        _userProfile = updated;
+      });
+      _showNotification('Đã lưu mục tiêu học tập tuần này');
+    } catch (e) {
+      if (!mounted) return;
+      _showNotification('Lỗi khi lưu mục tiêu: $e', isError: true);
+    }
+  }
+
+  Future<void> _updateThemeMode(String mode) async {
+    try {
+      final updated = await _profileRepository.updateThemeMode(mode);
+      if (!mounted) return;
+      setState(() {
+        _userProfile = updated;
+      });
+      widget.onThemeModeChanged?.call(updated.flutterThemeMode);
+      _showNotification(
+        'Đã chuyển giao diện: ${mode == 'light'
+            ? 'Sáng'
+            : mode == 'dark'
+            ? 'Tối'
+            : 'Theo hệ thống'}',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      _showNotification('Lỗi khi đổi giao diện: $e', isError: true);
+    }
+  }
+
+  Future<void> _updateReminderEnabled(bool enabled) async {
+    try {
+      final updated = await _profileRepository.updateReminderEnabled(enabled);
+      if (!mounted) return;
+      setState(() {
+        _userProfile = updated;
+      });
+      _showNotification(
+        enabled
+            ? 'Đã lưu tùy chọn: Bật nhắc học (Thông báo đẩy sẽ có ở bản cập nhật sau)'
+            : 'Đã tắt tùy chọn nhắc học',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      _showNotification('Lỗi khi cập nhật nhắc nhở: $e', isError: true);
+    }
+  }
+
+  Future<void> _resetStudyData() async {
+    try {
+      await _taskRepository.clearAllTasks();
+      await _loadData();
+      if (!mounted) return;
+      _showNotification('Đã xóa toàn bộ công việc và lịch sử học tập');
+    } catch (e) {
+      if (!mounted) return;
+      _showNotification('Lỗi khi đặt lại dữ liệu học tập: $e', isError: true);
+    }
+  }
+
+  Future<void> _resetProfile() async {
+    try {
+      await _profileRepository.resetProfile();
+      if (!mounted) return;
+      setState(() {
+        _userProfile = const UserProfile();
+      });
+      widget.onThemeModeChanged?.call(ThemeMode.system);
+      _showNotification('Đã đặt lại hồ sơ cá nhân về mặc định');
+    } catch (e) {
+      if (!mounted) return;
+      _showNotification('Lỗi khi đặt lại hồ sơ: $e', isError: true);
+    }
+  }
+
+  Future<void> _resetAllData() async {
+    try {
+      await _taskRepository.clearAllTasks();
+      await _profileRepository.resetProfile();
+      await _subjectRepository.resetDefaultSubjects(
+        SubjectRepository.getDefaultSubjects(),
+      );
+      await _loadData();
+      if (!mounted) return;
+      widget.onThemeModeChanged?.call(ThemeMode.system);
+      _showNotification('Đã khôi phục toàn bộ ứng dụng về mặc định');
+    } catch (e) {
+      if (!mounted) return;
+      _showNotification('Lỗi khi khôi phục toàn bộ: $e', isError: true);
+    }
+  }
+
   // --- CÔNG CỤ DỌN DẸP / KHÔI PHỤC DỮ LIỆU ---
 
   Future<void> _resetSampleData() async {
@@ -385,18 +630,6 @@ class _AppShellState extends State<AppShell> {
     } catch (e) {
       if (!mounted) return;
       _showNotification('Lỗi khi khôi phục dữ liệu mẫu: $e', isError: true);
-    }
-  }
-
-  Future<void> _clearAllTasks() async {
-    try {
-      await _taskRepository.clearAllTasks();
-      await _loadData();
-      if (!mounted) return;
-      _showNotification('Đã xóa tất cả công việc');
-    } catch (e) {
-      if (!mounted) return;
-      _showNotification('Lỗi khi xóa toàn bộ: $e', isError: true);
     }
   }
 
@@ -437,7 +670,7 @@ class _AppShellState extends State<AppShell> {
           IconButton(
             onPressed: () {
               _showNotification(
-                'Tính năng thông báo tự động sẽ được triển khai ở giai đoạn thông báo.',
+                'Tính năng thông báo đẩy tự động sẽ được hỗ trợ ở bản cập nhật sau.',
                 duration: const Duration(seconds: 2),
               );
             },
@@ -454,21 +687,21 @@ class _AppShellState extends State<AppShell> {
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              color: AppColors.primaryContainer,
-              child: const Row(
+              color: context.primaryContainerColor,
+              child: Row(
                 children: [
                   Icon(
                     Icons.info_outline_rounded,
                     size: 16,
-                    color: AppColors.primary,
+                    color: context.onPrimaryContainerColor,
                   ),
-                  SizedBox(width: 8),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       'Bản xem trước Web: Dữ liệu chỉ phục vụ preview giao diện, không ghi đè dữ liệu SQLite trên Android.',
                       style: TextStyle(
                         fontSize: 12,
-                        color: AppColors.primary,
+                        color: context.onPrimaryContainerColor,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -494,9 +727,9 @@ class _AppShellState extends State<AppShell> {
             )
           : null,
       bottomNavigationBar: Container(
-        decoration: const BoxDecoration(
-          color: AppColors.surface,
-          border: Border(top: BorderSide(color: AppColors.border, width: 1)),
+        decoration: BoxDecoration(
+          color: context.surfaceColor,
+          border: Border(top: BorderSide(color: context.borderColor, width: 1)),
         ),
         child: NavigationBar(
           selectedIndex: _selectedIndex,
@@ -623,15 +856,18 @@ class _AppShellState extends State<AppShell> {
     final pages = [
       OverviewScreen(
         tasks: _tasks,
+        studyStreak: StudyStreak.fromActiveDates(_activeDates),
         onToggleComplete: _toggleTaskComplete,
         onTapTask: _openTaskDetail,
         onEditTask: (task) => _openTaskForm(initialTask: task),
         onDeleteTask: _deleteTask,
         onAddTask: () => _openTaskForm(),
         onGoToPlan: () => setState(() => _selectedIndex = 1),
+        onGoToSubjects: () => setState(() => _selectedIndex = 2),
       ),
       PlanScreen(
         tasks: _tasks,
+        subjects: _subjects,
         onToggleComplete: _toggleTaskComplete,
         onTapTask: _openTaskDetail,
         onEditTask: (task) => _openTaskForm(initialTask: task),
@@ -651,10 +887,22 @@ class _AppShellState extends State<AppShell> {
         onAddTaskForSubject: (subject) =>
             _openTaskForm(preselectedSubjectId: subject.id),
       ),
-      StatisticsScreen(tasks: _tasks),
+      StatisticsScreen(
+        tasks: _tasks,
+        subjects: _subjects,
+        activities: _activities,
+      ),
       ProfileScreen(
+        profile: _userProfile,
+        activities: _activities,
+        onUpdateProfile: _updateProfile,
+        onUpdateGoals: _updateGoals,
+        onUpdateThemeMode: _updateThemeMode,
+        onUpdateReminderEnabled: _updateReminderEnabled,
+        onResetStudyData: _resetStudyData,
+        onResetProfile: _resetProfile,
         onResetSampleData: _resetSampleData,
-        onClearAllTasks: _clearAllTasks,
+        onResetAllData: _resetAllData,
       ),
     ];
 

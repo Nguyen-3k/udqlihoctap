@@ -8,6 +8,7 @@ class AppColors {
   // Màu thương hiệu chủ đạo (Royal Indigo)
   static const Color primary = Color(0xFF3B5BDB);
   static const Color primaryHover = Color(0xFF364FC7);
+  static const Color primaryLight = Color(0xFF818CF8);
   static const Color primaryContainer = Color(0xFFEEF2FF);
   static const Color onPrimaryContainer = Color(0xFF2B44B8);
 
@@ -62,4 +63,60 @@ class AppColors {
   static const Color error = Color(0xFFDC2626);
   static const Color errorContainer = Color(0xFFFEE2E2);
   static const Color success = Color(0xFF16A34A);
+
+  // --- HÀM TIỆN ÍCH THÍCH ỨNG THEME SÁNG / TỐI (DARK MODE ADAPTIVE) ---
+
+  static bool isDark(BuildContext context) {
+    return Theme.of(context).brightness == Brightness.dark;
+  }
+
+  static Color surfaceOf(BuildContext context) {
+    return isDark(context) ? const Color(0xFF1E293B) : surface;
+  }
+
+  static Color backgroundOf(BuildContext context) {
+    return isDark(context) ? const Color(0xFF0F172A) : background;
+  }
+
+  static Color textPrimaryOf(BuildContext context) {
+    return isDark(context) ? const Color(0xFFF8FAFC) : textPrimary;
+  }
+
+  static Color textSecondaryOf(BuildContext context) {
+    return isDark(context) ? const Color(0xFF94A3B8) : textSecondary;
+  }
+
+  static Color borderOf(BuildContext context) {
+    return isDark(context) ? const Color(0xFF334155) : border;
+  }
+
+  static Color borderSubtleOf(BuildContext context) {
+    return isDark(context) ? const Color(0xFF1E293B) : borderSubtle;
+  }
+
+  static Color surfaceMutedOf(BuildContext context) {
+    return isDark(context) ? const Color(0xFF172033) : surfaceMuted;
+  }
+
+  static Color primaryContainerOf(BuildContext context) {
+    return isDark(context) ? const Color(0xFF312E81) : primaryContainer;
+  }
+
+  static Color onPrimaryContainerOf(BuildContext context) {
+    return isDark(context) ? const Color(0xFFE0E7FF) : onPrimaryContainer;
+  }
+}
+
+/// Extension tiện lợi trên BuildContext để truy xuất màu sắc thích ứng theme nhanh chóng.
+extension AppThemeContext on BuildContext {
+  bool get isDark => AppColors.isDark(this);
+  Color get surfaceColor => AppColors.surfaceOf(this);
+  Color get backgroundColor => AppColors.backgroundOf(this);
+  Color get textPrimaryColor => AppColors.textPrimaryOf(this);
+  Color get textSecondaryColor => AppColors.textSecondaryOf(this);
+  Color get borderColor => AppColors.borderOf(this);
+  Color get borderSubtleColor => AppColors.borderSubtleOf(this);
+  Color get surfaceMutedColor => AppColors.surfaceMutedOf(this);
+  Color get primaryContainerColor => AppColors.primaryContainerOf(this);
+  Color get onPrimaryContainerColor => AppColors.onPrimaryContainerOf(this);
 }

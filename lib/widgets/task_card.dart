@@ -4,7 +4,8 @@ import '../models/task_status.dart';
 import '../theme/app_colors.dart';
 
 /// Thẻ hiển thị một công việc học tập theo hệ thống thiết kế ExamPilot.
-/// Hỗ trợ mục tiêu chạm chuẩn 48dp, thanh màu ưu tiên tinh tế và hệ thống thẻ nhãn phân cấp.
+/// Hỗ trợ mục tiêu chạm chuẩn 48dp, thanh màu ưu tiên tinh tế, hệ thống thẻ nhãn phân cấp,
+/// hiển thị trạng thái mức độ hiểu bài và hộp thoại xác nhận xóa an toàn.
 class TaskCard extends StatelessWidget {
   final StudyTask task;
   final ValueChanged<bool?> onToggleComplete;
@@ -29,6 +30,49 @@ class TaskCard extends StatelessWidget {
     return '$day/$month $hour:$minute';
   }
 
+  void _confirmDelete(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: dialogContext.surfaceColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          'Xác nhận xóa',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: dialogContext.textPrimaryColor,
+          ),
+        ),
+        content: Text(
+          'Bạn có chắc chắn muốn xóa công việc "${task.title}" không?',
+          style: TextStyle(
+            fontSize: 14,
+            color: dialogContext.textSecondaryColor,
+            height: 1.4,
+          ),
+        ),
+        actions: [
+          OutlinedButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Hủy'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              onDelete();
+            },
+            child: const Text('Xóa'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isCompleted = task.isCompleted;
@@ -39,10 +83,10 @@ class TaskCard extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: context.surfaceColor,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isCompleted ? AppColors.borderSubtle : AppColors.border,
+          color: isCompleted ? context.borderSubtleColor : context.borderColor,
           width: 1,
         ),
       ),
@@ -52,7 +96,7 @@ class TaskCard extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Thanh viền màu thể hiện mức ưu tiên ở mép trái (4px)
+              // Thanh viền màu thể hiện mức ưu tiên ở mép trái (4.5px)
               Container(width: 4.5, color: accentColor),
 
               // Nội dung thẻ
@@ -67,7 +111,7 @@ class TaskCard extends StatelessWidget {
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Checkbox đánh dấu hoàn thành nhanh (Chuẩn touch target 48x48dp)
+                            // Checkbox đánh dấu hoàn thành nhanh (Chuẩn touch target 44-48dp)
                             SizedBox(
                               width: 44,
                               height: 44,
@@ -84,7 +128,7 @@ class TaskCard extends StatelessWidget {
                             ),
                             const SizedBox(width: 4),
 
-                            // Tiêu đề và nhãn môn học / ưu tiên
+                            // Tiêu đề và nhãn môn học / ưu tiên / mức độ hiểu
                             Expanded(
                               child: Padding(
                                 padding: const EdgeInsets.only(top: 2),
@@ -101,7 +145,7 @@ class TaskCard extends StatelessWidget {
                                             : null,
                                         color: isCompleted
                                             ? AppColors.textMuted
-                                            : AppColors.textPrimary,
+                                            : context.textPrimaryColor,
                                         height: 1.3,
                                       ),
                                     ),
@@ -119,16 +163,18 @@ class TaskCard extends StatelessWidget {
                                             vertical: 3,
                                           ),
                                           decoration: BoxDecoration(
-                                            color: AppColors.primaryContainer,
+                                            color:
+                                                context.primaryContainerColor,
                                             borderRadius: BorderRadius.circular(
                                               6,
                                             ),
                                           ),
                                           child: Text(
                                             task.subject,
-                                            style: const TextStyle(
+                                            style: TextStyle(
                                               fontSize: 12,
-                                              color: AppColors.primary,
+                                              color: context
+                                                  .onPrimaryContainerColor,
                                               fontWeight: FontWeight.w600,
                                             ),
                                           ),
@@ -197,6 +243,88 @@ class TaskCard extends StatelessWidget {
                                               ],
                                             ),
                                           ),
+
+                                        // Badge Mức độ hiểu bài
+                                        if (task.understandingLevel != null)
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 3,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: task
+                                                  .understandingLevel!
+                                                  .backgroundColor,
+                                              borderRadius:
+                                                  BorderRadius.circular(6),
+                                              border: Border.all(
+                                                color: task
+                                                    .understandingLevel!
+                                                    .borderColor,
+                                                width: 0.8,
+                                              ),
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  task.understandingLevel!.icon,
+                                                  size: 13,
+                                                  color: task
+                                                      .understandingLevel!
+                                                      .color,
+                                                ),
+                                                const SizedBox(width: 4),
+                                                Text(
+                                                  task
+                                                      .understandingLevel!
+                                                      .label,
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    color: task
+                                                        .understandingLevel!
+                                                        .color,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          )
+                                        else if (isCompleted)
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 3,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: context.surfaceMutedColor,
+                                              borderRadius:
+                                                  BorderRadius.circular(6),
+                                              border: Border.all(
+                                                color: context.borderColor,
+                                                width: 0.8,
+                                              ),
+                                            ),
+                                            child: const Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  Icons.help_outline_rounded,
+                                                  size: 13,
+                                                  color: AppColors.textMuted,
+                                                ),
+                                                SizedBox(width: 4),
+                                                Text(
+                                                  'Chưa đánh giá',
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    color: AppColors.textMuted,
+                                                    fontWeight: FontWeight.w500,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
                                       ],
                                     ),
                                   ],
@@ -204,7 +332,7 @@ class TaskCard extends StatelessWidget {
                               ),
                             ),
 
-                            // Nút mở menu thao tác nhanh (Chuẩn touch target 44x44dp)
+                            // Nút mở menu thao tác nhanh (Có xác nhận xóa an toàn)
                             SizedBox(
                               width: 40,
                               height: 40,
@@ -222,7 +350,7 @@ class TaskCard extends StatelessWidget {
                                   if (value == 'edit') {
                                     onEdit();
                                   } else if (value == 'delete') {
-                                    onDelete();
+                                    _confirmDelete(context);
                                   }
                                 },
                                 itemBuilder: (context) => [
@@ -274,7 +402,7 @@ class TaskCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 8),
 
-                        // Thông tin chân thẻ: Hạn chót, thời lượng và ghi chú
+                        // Thông tin chân thẻ: Hạn chót, thời lượng, ghi chú
                         Row(
                           children: [
                             const Icon(

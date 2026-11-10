@@ -1,5 +1,6 @@
 import 'task_priority.dart';
 import 'task_status.dart';
+import 'understanding_level.dart';
 
 /// Đại diện cho một công việc học tập trong ExamPilot.
 class StudyTask {
@@ -16,7 +17,18 @@ class StudyTask {
   int estimatedMinutes;
   TaskPriority priority;
   TaskStatus status;
+
+  /// Ghi chú ban đầu của công việc (khái niệm khó hiểu, nội dung cần nhớ).
   String notes;
+
+  /// Mức độ hiểu bài được tự đánh giá sau khi hoàn thành (hoặc khi xem lại).
+  UnderstandingLevel? understandingLevel;
+
+  /// Ghi chú ôn tập / phản hồi sau khi đánh giá mức độ hiểu (tách biệt khỏi `notes` ban đầu).
+  String? reviewNotes;
+
+  /// Thời lượng học thực tế (phút) được người dùng tự ghi nhận khi hoàn thành bài.
+  int? actualMinutes;
 
   StudyTask({
     required this.id,
@@ -28,6 +40,9 @@ class StudyTask {
     this.priority = TaskPriority.medium,
     this.status = TaskStatus.todo,
     this.notes = '',
+    this.understandingLevel,
+    this.reviewNotes,
+    this.actualMinutes,
   }) : subjectId = (subjectId != null && subjectId.isNotEmpty)
            ? subjectId
            : _resolveSubjectIdFromName(subject);
@@ -38,7 +53,10 @@ class StudyTask {
   /// Kiểm tra xem công việc đã quá hạn hay chưa.
   bool get isOverdue => !isCompleted && deadline.isBefore(DateTime.now());
 
-  /// Chuyển đổi đối tượng sang Map để lưu trữ trong SQLite.
+  /// Kiểm tra xem công việc đã được tự đánh giá mức độ hiểu chưa.
+  bool get isAssessed => understandingLevel != null;
+
+  /// Chuyển đổi đối tượng sang Map để lưu trữ trong SQLite hoặc bộ nhớ Web.
   Map<String, dynamic> toMap() {
     return {
       'id': id,
@@ -50,6 +68,9 @@ class StudyTask {
       'priority': priority.name,
       'status': status.name,
       'notes': notes,
+      'understanding_level': understandingLevel?.name,
+      'review_notes': reviewNotes,
+      'actual_minutes': actualMinutes,
     };
   }
 
@@ -72,6 +93,11 @@ class StudyTask {
       priority: _parsePriority(map['priority']?.toString()),
       status: _parseStatus(map['status']?.toString()),
       notes: map['notes']?.toString() ?? '',
+      understandingLevel: _parseUnderstandingLevel(
+        map['understanding_level']?.toString(),
+      ),
+      reviewNotes: map['review_notes']?.toString(),
+      actualMinutes: (map['actual_minutes'] as num?)?.toInt(),
     );
   }
 
@@ -109,6 +135,17 @@ class StudyTask {
     );
   }
 
+  static UnderstandingLevel? _parseUnderstandingLevel(String? val) {
+    if (val == null || val.trim().isEmpty) return null;
+    final clean = val.contains('.') ? val.split('.').last.trim() : val.trim();
+    for (final level in UnderstandingLevel.values) {
+      if (level.name.toLowerCase() == clean.toLowerCase()) {
+        return level;
+      }
+    }
+    return null;
+  }
+
   /// Tạo bản sao có cập nhật trường dữ liệu.
   StudyTask copyWith({
     String? id,
@@ -120,6 +157,12 @@ class StudyTask {
     TaskPriority? priority,
     TaskStatus? status,
     String? notes,
+    UnderstandingLevel? understandingLevel,
+    bool clearUnderstandingLevel = false,
+    String? reviewNotes,
+    bool clearReviewNotes = false,
+    int? actualMinutes,
+    bool clearActualMinutes = false,
   }) {
     return StudyTask(
       id: id ?? this.id,
@@ -131,6 +174,13 @@ class StudyTask {
       priority: priority ?? this.priority,
       status: status ?? this.status,
       notes: notes ?? this.notes,
+      understandingLevel: clearUnderstandingLevel
+          ? null
+          : (understandingLevel ?? this.understandingLevel),
+      reviewNotes: clearReviewNotes ? null : (reviewNotes ?? this.reviewNotes),
+      actualMinutes: clearActualMinutes
+          ? null
+          : (actualMinutes ?? this.actualMinutes),
     );
   }
 }
