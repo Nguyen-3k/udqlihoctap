@@ -13,7 +13,7 @@ class StudyTask {
   /// Tên môn học hiển thị (được cập nhật đồng bộ khi đổi tên môn học).
   String subject;
 
-  DateTime deadline;
+  DateTime? deadline;
   int estimatedMinutes;
   TaskPriority priority;
   TaskStatus status;
@@ -35,8 +35,8 @@ class StudyTask {
     required this.title,
     String? subjectId,
     required this.subject,
-    required this.deadline,
-    required this.estimatedMinutes,
+    this.deadline,
+    this.estimatedMinutes = 0,
     this.priority = TaskPriority.medium,
     this.status = TaskStatus.todo,
     this.notes = '',
@@ -51,7 +51,15 @@ class StudyTask {
   bool get isCompleted => status == TaskStatus.completed;
 
   /// Kiểm tra xem công việc đã quá hạn hay chưa.
-  bool get isOverdue => !isCompleted && deadline.isBefore(DateTime.now());
+  bool get isOverdue =>
+      !isCompleted && deadline != null && deadline!.isBefore(DateTime.now());
+
+  /// Kiểm tra xem công việc có sắp đến hạn trong vòng 48 giờ tới hay không.
+  bool get isDueSoon {
+    if (isCompleted || deadline == null) return false;
+    final diff = deadline!.difference(DateTime.now());
+    return !diff.isNegative && diff.inHours <= 48;
+  }
 
   /// Kiểm tra xem công việc đã được tự đánh giá mức độ hiểu chưa.
   bool get isAssessed => understandingLevel != null;
@@ -63,7 +71,7 @@ class StudyTask {
       'title': title,
       'subject_id': subjectId,
       'subject': subject,
-      'deadline': deadline.toIso8601String(),
+      'deadline': deadline?.toIso8601String() ?? '',
       'estimated_minutes': estimatedMinutes,
       'priority': priority.name,
       'status': status.name,
@@ -78,6 +86,7 @@ class StudyTask {
   factory StudyTask.fromMap(Map<String, dynamic> map) {
     final subName = map['subject']?.toString() ?? 'Chung';
     final subId = map['subject_id']?.toString();
+    final deadlineRaw = map['deadline']?.toString();
 
     return StudyTask(
       id: map['id']?.toString() ?? '',
@@ -86,9 +95,9 @@ class StudyTask {
           ? subId
           : _resolveSubjectIdFromName(subName),
       subject: subName,
-      deadline:
-          DateTime.tryParse(map['deadline']?.toString() ?? '') ??
-          DateTime.now(),
+      deadline: (deadlineRaw != null && deadlineRaw.isNotEmpty)
+          ? DateTime.tryParse(deadlineRaw)
+          : null,
       estimatedMinutes: (map['estimated_minutes'] as num?)?.toInt() ?? 0,
       priority: _parsePriority(map['priority']?.toString()),
       status: _parseStatus(map['status']?.toString()),
@@ -153,6 +162,7 @@ class StudyTask {
     String? subjectId,
     String? subject,
     DateTime? deadline,
+    bool clearDeadline = false,
     int? estimatedMinutes,
     TaskPriority? priority,
     TaskStatus? status,
@@ -169,7 +179,7 @@ class StudyTask {
       title: title ?? this.title,
       subjectId: subjectId ?? this.subjectId,
       subject: subject ?? this.subject,
-      deadline: deadline ?? this.deadline,
+      deadline: clearDeadline ? null : (deadline ?? this.deadline),
       estimatedMinutes: estimatedMinutes ?? this.estimatedMinutes,
       priority: priority ?? this.priority,
       status: status ?? this.status,

@@ -2,6 +2,7 @@ import '../models/study_activity.dart';
 import '../models/study_streak.dart';
 import '../models/study_task.dart';
 import '../models/subject.dart';
+import '../models/task_status.dart';
 
 /// Khoảng thời gian thống kê.
 enum StatisticsPeriod {
@@ -59,17 +60,19 @@ class SubjectStudyMetric {
 }
 
 /// Kết quả tính toán tổng hợp toàn bộ số liệu thống kê.
-/// Tách biệt rõ ràng số liệu trạng thái công việc hiện tại và lịch sử hoạt động học tập.
+/// Tách biệt rõ ràng số liệu trạng thái công việc hiện tại (Nhóm B) và lịch sử hoạt động học tập (Nhóm A).
 class StudyStatistics {
   final StatisticsPeriod period;
 
-  // 1. Trạng thái công việc hiện tại (danh mục nhiệm vụ)
+  // 1. Trạng thái công việc hiện tại (danh mục nhiệm vụ đang quản lý - Nhóm B)
   final int totalTasks;
   final int currentCompletedTasks;
-  final int pendingTasks;
-  final double currentCompletionRate;
+  final int inProgressTasks;
+  final int todoTasks;
+  final int pendingTasks; // inProgressTasks + todoTasks
+  final double currentCompletionRate; // currentCompletedTasks / totalTasks
 
-  // 2. Lịch sử hoạt động học tập thực tế trong kỳ (từ study_activities)
+  // 2. Lịch sử hoạt động học tập thực tế trong kỳ (từ study_activities - Nhóm A)
   final int periodCompletedTasks;
   final int totalActualMinutes;
   final int totalSubjects;
@@ -80,6 +83,8 @@ class StudyStatistics {
     required this.period,
     required this.totalTasks,
     required this.currentCompletedTasks,
+    this.inProgressTasks = 0,
+    this.todoTasks = 0,
     required this.pendingTasks,
     required this.currentCompletionRate,
     required this.periodCompletedTasks,
@@ -89,14 +94,10 @@ class StudyStatistics {
     required this.subjectMetrics,
   });
 
-  /// Getter tương thích ngược:
-  /// - Khi xem "Tất cả thời gian": trả về số công việc hoàn thành hiện tại
-  /// - Khi xem 7 ngày / 30 ngày: trả về số công việc đã hoàn thành trong kỳ từ activities
-  int get completedTasks => period == StatisticsPeriod.allTime
-      ? currentCompletedTasks
-      : periodCompletedTasks;
+  /// Getter tương thích ngược: Luôn trả về số công việc hoàn thành trong danh mục hiện tại.
+  int get completedTasks => currentCompletedTasks;
 
-  /// Tỷ lệ hoàn thành công việc hiện tại
+  /// Tỷ lệ hoàn thành công việc danh mục hiện tại.
   double get completionRate => currentCompletionRate;
 
   /// Kiểm tra xem tuần này có hoạt động học tập nào không.
@@ -106,6 +107,7 @@ class StudyStatistics {
 
 /// Bộ tính toán thống kê độc lập, tách biệt hoàn toàn khỏi Widget UI.
 /// Tuân thủ nghiêm ngặt nguyên tắc:
+/// - Phân định rạch ròi: Nhóm A (Hoạt động theo kỳ) và Nhóm B (Trạng thái danh mục hiện tại).
 /// - Không dùng deadline hay ngày tạo để suy diễn sinh viên đã học.
 /// - Lịch sử học tập hoàn toàn dựa vào study_activities.
 /// - Không xóa lịch sử học tập khi bỏ tích hoàn thành task.
@@ -139,7 +141,7 @@ class StudyStatisticsCalculator {
       filterStartDate = startOfToday.subtract(const Duration(days: 29));
     }
 
-    // 1. Lọc danh sách hoạt động học tập thực tế theo khoảng thời gian
+    // 1. NHÓM A: Lọc danh sách hoạt động học tập thực tế theo khoảng thời gian
     // Sử dụng study_activities làm nguồn dữ liệu chính cho các chỉ số lịch sử
     final filteredActivities = activities.where((a) {
       if (filterStartDate == null) return true;
@@ -148,24 +150,23 @@ class StudyStatisticsCalculator {
           !localCompleted.isAfter(endOfToday);
     }).toList();
 
-    // 2. Số lượng công việc hoàn thành trong kỳ (dùng taskId duy nhất chống cộng trùng)
-    final periodCompletedTaskIds = filteredActivities
-        .map((a) => a.taskId)
-        .toSet();
-    int periodCompletedTasks = periodCompletedTaskIds.length;
+    // 2. NHÓM A: Số lượt công việc hoàn thành trong kỳ
+    final periodCompletedTasks = filteredActivities.length;
 
-    // 3. Công việc hiện tại (danh mục nhiệm vụ)
+    // 3. NHÓM B: Trạng thái công việc hiện tại (danh mục nhiệm vụ đang quản lý)
     // Các chỉ số trạng thái công việc hiện tại độc lập với bộ lọc thời gian để không làm sai lệch bản chất
     final totalTasks = tasks.length;
     final currentCompletedTasks = tasks.where((t) => t.isCompleted).length;
-    final pendingTasks = totalTasks > currentCompletedTasks
-        ? totalTasks - currentCompletedTasks
-        : 0;
+    final inProgressTasks = tasks
+        .where((t) => t.status == TaskStatus.inProgress)
+        .length;
+    final todoTasks = tasks.where((t) => t.status == TaskStatus.todo).length;
+    final pendingTasks = inProgressTasks + todoTasks;
     final currentCompletionRate = totalTasks > 0
         ? (currentCompletedTasks / totalTasks)
         : 0.0;
 
-    // 4. Tổng thời lượng học thực tế (từ các hoạt động trong kỳ)
+    // 4. NHÓM A: Tổng thời lượng học thực tế (từ các hoạt động trong kỳ)
     int totalActualMinutes = filteredActivities.fold<int>(
       0,
       (sum, a) => sum + a.actualMinutes,
@@ -174,22 +175,22 @@ class StudyStatisticsCalculator {
     // Fallback an toàn cho allTime: nếu có công việc hoàn thành trong tasks chưa có activity (dữ liệu mock/cũ)
     if (period == StatisticsPeriod.allTime) {
       final extraCompleted = tasks.where(
-        (t) => t.isCompleted && !periodCompletedTaskIds.contains(t.id),
+        (t) =>
+            t.isCompleted && !filteredActivities.any((a) => a.taskId == t.id),
       );
-      periodCompletedTasks += extraCompleted.length;
       totalActualMinutes += extraCompleted.fold<int>(
         0,
         (sum, t) => sum + (t.actualMinutes ?? 0),
       );
     }
 
-    // 5. Tính toán biểu đồ 7 ngày của tuần hiện tại (Thứ 2 đến Chủ nhật)
+    // 5. NHÓM A: Tính toán biểu đồ 7 ngày của tuần hiện tại (Thứ 2 đến Chủ nhật)
     final weeklyMetrics = _calculateWeeklyMetrics(
       activities: activities,
       now: current,
     );
 
-    // 6. Tính toán thống kê theo từng môn học
+    // 6. NHÓM A & B: Tính toán thống kê theo từng môn học
     final subjectMetrics = _calculateSubjectMetrics(
       tasks: tasks,
       subjects: subjects,
@@ -202,6 +203,8 @@ class StudyStatisticsCalculator {
       period: period,
       totalTasks: totalTasks,
       currentCompletedTasks: currentCompletedTasks,
+      inProgressTasks: inProgressTasks,
+      todoTasks: todoTasks,
       pendingTasks: pendingTasks,
       currentCompletionRate: currentCompletionRate,
       periodCompletedTasks: periodCompletedTasks,
@@ -282,10 +285,7 @@ class StudyStatisticsCalculator {
             (a.subjectId == null && subTaskIds.contains(a.taskId)),
       );
 
-      final periodCompletedCount = subFilteredActivities
-          .map((a) => a.taskId)
-          .toSet()
-          .length;
+      final periodCompletedCount = subFilteredActivities.length;
 
       var subMinutes = subFilteredActivities.fold<int>(
         0,

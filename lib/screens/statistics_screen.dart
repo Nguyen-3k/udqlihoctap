@@ -68,26 +68,32 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
         ),
         const SizedBox(height: 4),
         Text(
-          'Theo dõi tiến độ, thời lượng và hoạt động tự học thực tế',
+          'Theo dõi hoạt động tự học trong kỳ và tiến độ danh mục công việc',
           style: TextStyle(color: context.textSecondaryColor, fontSize: 13),
         ),
         const SizedBox(height: 16),
 
-        // --- 2. BỘ LỌC KHOẢNG THỜI GIAN (7 ngày, 30 ngày, Tất cả) ---
-        _buildPeriodSelector(),
-        const SizedBox(height: 16),
-
-        // --- 3. TỔNG QUAN THỐNG KÊ (6 CHỈ SỐ BẮT BUỘC) ---
+        // --- 2. NHÓM B: TRẠNG THÁI DANH MỤC CÔNG VIỆC HIỆN TẠI ---
+        _buildCurrentInventoryHeader(),
+        const SizedBox(height: 12),
         _buildOverallCompletionCard(stats),
         const SizedBox(height: 12),
-        _buildMetricsGrid(stats),
+        _buildCurrentInventoryMetrics(stats),
         const SizedBox(height: 24),
 
-        // --- 4. BIỂU ĐỒ HOẠT ĐỘNG HỌC TẬP THEO TUẦN (7 NGÀY T2 -> CN) ---
+        // --- 3. NHÓM A: HOẠT ĐỘNG HỌC TẬP TRONG KỲ ---
+        _buildPeriodSelector(),
+        const SizedBox(height: 16),
+        _buildPeriodActivityHeader(),
+        const SizedBox(height: 12),
+        _buildPeriodActivityMetrics(stats),
+        const SizedBox(height: 20),
+
+        // BIỂU ĐỒ HOẠT ĐỘNG HỌC TẬP THEO TUẦN (7 NGÀY T2 -> CN)
         _buildWeeklyChartSection(stats),
         const SizedBox(height: 24),
 
-        // --- 5. THỐNG KÊ THEO MÔN HỌC (LIÊN KẾT BẰNG SUBJECTID) ---
+        // --- 5. THỐNG KÊ TIẾN ĐỘ THEO MÔN HỌC ---
         _buildSubjectStatisticsSection(stats),
         const SizedBox(height: 20),
 
@@ -158,9 +164,126 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     );
   }
 
-  // --- THẺ TỶ LỆ HOÀN THÀNH TỔNG QUAN ---
+  // --- TIÊU ĐỀ NHÓM A: HOẠT ĐỘNG HỌC TẬP TRONG KỲ ---
+  Widget _buildPeriodActivityHeader() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(
+              Icons.insights_rounded,
+              color: AppColors.primary,
+              size: 20,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Hoạt động học tập trong kỳ',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: context.textPrimaryColor,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
+              decoration: BoxDecoration(
+                color: context.primaryContainerColor,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                'Kỳ: ${_selectedPeriod.label}',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: context.isDark
+                      ? AppColors.primaryLight
+                      : AppColors.primary,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 3),
+        Text(
+          'Số liệu nỗ lực tự học ghi nhận từ các buổi học hoàn thành thực tế trong ${_selectedPeriod.label.toLowerCase()}',
+          style: TextStyle(fontSize: 12, color: context.textSecondaryColor),
+        ),
+      ],
+    );
+  }
+
+  // --- CÁC CHỈ SỐ NHÓM A: HOẠT ĐỘNG HỌC TẬP TRONG KỲ ---
+  Widget _buildPeriodActivityMetrics(StudyStatistics stats) {
+    return Row(
+      children: [
+        Expanded(
+          child: _buildMetricCard(
+            icon: Icons.task_alt_rounded,
+            iconColor: AppColors.primary,
+            title: 'Lượt hoàn thành',
+            value: '${stats.periodCompletedTasks}',
+            subtitle: 'Trong ${_selectedPeriod.label.toLowerCase()}',
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _buildMetricCard(
+            icon: Icons.timer_outlined,
+            iconColor: const Color(0xFF7C3AED), // Tím năng động
+            title: 'Thời lượng thực tế',
+            value: _formatDuration(stats.totalActualMinutes),
+            subtitle: 'Thời gian tự học',
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --- TIÊU ĐỀ NHÓM B: TRẠNG THÁI DANH MỤC CÔNG VIỆC HIỆN TẠI ---
+  Widget _buildCurrentInventoryHeader() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(
+              Icons.format_list_bulleted_rounded,
+              color: AppColors.primary,
+              size: 20,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Trạng thái danh mục công việc',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: context.textPrimaryColor,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 3),
+        Text(
+          'Tình trạng toàn bộ các bài tập đang quản lý trong ứng dụng (không phụ thuộc bộ lọc thời gian)',
+          style: TextStyle(fontSize: 12, color: context.textSecondaryColor),
+        ),
+      ],
+    );
+  }
+
+  // --- THẺ TỶ LỆ HOÀN THÀNH DANH MỤC HIỆN TẠI ---
   Widget _buildOverallCompletionCard(StudyStatistics stats) {
-    final percentInt = (stats.completionRate * 100).round();
+    final percentInt = (stats.currentCompletionRate * 100).round();
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -174,24 +297,30 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  const Icon(
-                    Icons.trending_up_rounded,
-                    color: AppColors.primary,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Tỷ lệ hoàn thành nhiệm vụ',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                      color: context.textPrimaryColor,
+              Expanded(
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.trending_up_rounded,
+                      color: AppColors.primary,
+                      size: 20,
                     ),
-                  ),
-                ],
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Tỷ lệ hoàn thành nhiệm vụ',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: context.textPrimaryColor,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
               ),
+              const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 10,
@@ -218,7 +347,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           ClipRRect(
             borderRadius: BorderRadius.circular(10),
             child: LinearProgressIndicator(
-              value: stats.completionRate,
+              value: stats.currentCompletionRate,
               minHeight: 10,
               backgroundColor: context.surfaceMutedColor,
               color: AppColors.primary,
@@ -226,9 +355,9 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           ),
           const SizedBox(height: 12),
           Text(
-            _selectedPeriod == StatisticsPeriod.allTime
-                ? '${stats.currentCompletedTasks} / ${stats.totalTasks} công việc đã hoàn thành (tiến độ hiện tại)'
-                : '${stats.periodCompletedTasks} công việc hoàn thành trong ${_selectedPeriod.label.toLowerCase()} • Tiến độ hiện tại: ${stats.currentCompletedTasks}/${stats.totalTasks}',
+            stats.totalTasks == 0
+                ? 'Chưa có công việc nào trong danh mục.'
+                : 'Đang hoàn thành ${stats.currentCompletedTasks} / ${stats.totalTasks} công việc hiện có (${stats.pendingTasks} việc chưa xong)',
             style: TextStyle(
               color: context.textSecondaryColor,
               fontSize: 12.5,
@@ -240,8 +369,8 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     );
   }
 
-  // --- LƯỚI CÁC CHỈ SỐ CHI TIẾT ---
-  Widget _buildMetricsGrid(StudyStatistics stats) {
+  // --- LƯỚI CÁC CHỈ SỐ DANH MỤC HIỆN TẠI (NHÓM B) ---
+  Widget _buildCurrentInventoryMetrics(StudyStatistics stats) {
     return Column(
       children: [
         Row(
@@ -252,7 +381,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                 iconColor: AppColors.primary,
                 title: 'Tổng công việc',
                 value: '${stats.totalTasks}',
-                subtitle: 'Theo khoảng lọc',
+                subtitle: 'Toàn bộ danh mục',
               ),
             ),
             const SizedBox(width: 10),
@@ -261,8 +390,8 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                 icon: Icons.check_circle_rounded,
                 iconColor: AppColors.statusCompleted,
                 title: 'Đã hoàn thành',
-                value: '${stats.completedTasks}',
-                subtitle: 'Đạt ${(stats.completionRate * 100).round()}%',
+                value: '${stats.currentCompletedTasks}',
+                subtitle: 'Đạt ${(stats.currentCompletionRate * 100).round()}%',
               ),
             ),
           ],
@@ -272,21 +401,21 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           children: [
             Expanded(
               child: _buildMetricCard(
-                icon: Icons.pending_actions_rounded,
+                icon: Icons.timelapse_rounded,
                 iconColor: AppColors.statusInProgress,
-                title: 'Chưa hoàn thành',
-                value: '${stats.pendingTasks}',
-                subtitle: 'Cần tiếp tục học',
+                title: 'Đang làm',
+                value: '${stats.inProgressTasks}',
+                subtitle: 'Đang tiến hành',
               ),
             ),
             const SizedBox(width: 10),
             Expanded(
               child: _buildMetricCard(
-                icon: Icons.timer_outlined,
-                iconColor: const Color(0xFF7C3AED), // Tím đậm năng động
-                title: 'Thời lượng thực tế',
-                value: _formatDuration(stats.totalActualMinutes),
-                subtitle: 'Được ghi nhận',
+                icon: Icons.pending_actions_rounded,
+                iconColor: AppColors.priorityMedium,
+                title: 'Chưa làm',
+                value: '${stats.todoTasks}',
+                subtitle: 'Chưa bắt đầu',
               ),
             ),
           ],
@@ -294,6 +423,16 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
         const SizedBox(height: 10),
         Row(
           children: [
+            Expanded(
+              child: _buildMetricCard(
+                icon: Icons.hourglass_empty_rounded,
+                iconColor: AppColors.error,
+                title: 'Chưa hoàn thành',
+                value: '${stats.pendingTasks}',
+                subtitle: 'Cần hoàn thành tiếp',
+              ),
+            ),
+            const SizedBox(width: 10),
             Expanded(
               child: _buildMetricCard(
                 icon: Icons.menu_book_rounded,
@@ -301,16 +440,6 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                 title: 'Môn học quản lý',
                 value: '${stats.totalSubjects}',
                 subtitle: 'Danh mục hiện có',
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _buildMetricCard(
-                icon: Icons.verified_rounded,
-                iconColor: AppColors.primary,
-                title: 'Trạng thái học',
-                value: stats.completedTasks > 0 ? 'Tích cực' : 'Khởi động',
-                subtitle: 'Theo tiến độ thực',
               ),
             ),
           ],
@@ -896,7 +1025,9 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              '${metric.completedTasks} / ${metric.totalTasks} công việc',
+              metric.totalTasks == 0
+                  ? 'Chưa có công việc'
+                  : 'Danh mục: ${metric.currentCompletedTasks} / ${metric.totalTasks} việc',
               style: TextStyle(
                 fontSize: 12,
                 color: context.textSecondaryColor,
@@ -946,7 +1077,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'Dữ liệu thống kê được tính toán độc lập từ các hoạt động học tập thực tế và trạng thái công việc. Không sử dụng dữ liệu mẫu.',
+              'Dữ liệu hoạt động học tập được tính toán độc lập từ study_activities dựa trên thời điểm hoàn thành bài học thực tế, không dùng deadline. Trạng thái danh mục phản ánh toàn bộ công việc hiện tại.',
               style: TextStyle(
                 fontSize: 12,
                 color: context.textPrimaryColor,

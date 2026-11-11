@@ -521,7 +521,7 @@ void main() {
         await tester.pumpAndSettle();
 
         // Xuất hiện hộp thoại xác nhận rõ ràng
-        expect(find.text('Xóa toàn bộ công việc học tập?'), findsOneWidget);
+        expect(find.text('Đặt lại toàn bộ dữ liệu học tập?'), findsOneWidget);
         expect(find.text('Hủy'), findsOneWidget);
         expect(find.text('Xác nhận xóa'), findsOneWidget);
 
@@ -536,6 +536,626 @@ void main() {
         await tester.tap(find.text('Xác nhận xóa'));
         await tester.pumpAndSettle();
         expect(resetCalled, isTrue);
+      },
+    );
+  });
+
+  group('G8.5: Hoàn thiện UX Màn hình Cá nhân và Cài đặt', () {
+    testWidgets(
+      'G8.5-1: Thông tin hồ sơ hiển thị đầy đủ, đúng thứ tự và nhãn chỉnh sửa rõ ràng',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+
+        const profile = UserProfile(
+          name: 'Nguyễn Văn Hoàng',
+          university: 'Đại học Quốc gia Hà Nội',
+          major: 'Khoa học Máy tính',
+          academicYear: 'K65',
+        );
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ProfileScreen(
+                profile: profile,
+                activities: const [],
+                onUpdateProfile: (_) {},
+                onUpdateGoals: (h, t) {},
+                onUpdateThemeMode: (_) {},
+                onUpdateReminderEnabled: (_) {},
+                onResetStudyData: () async {},
+                onResetProfile: () async {},
+                onResetSampleData: () async {},
+                onResetAllData: () async {},
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Nguyễn Văn Hoàng'), findsOneWidget);
+        expect(find.text('Đại học Quốc gia Hà Nội'), findsOneWidget);
+        expect(find.text('Khoa học Máy tính'), findsOneWidget);
+        expect(find.text('K65'), findsOneWidget);
+        expect(find.text('Chỉnh sửa hồ sơ'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'G8.5-2: Chỉnh sửa hồ sơ qua ProfileEditDialog và lưu thành công',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+
+        UserProfile? updatedProfile;
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ProfileScreen(
+                profile: const UserProfile(
+                  name: 'Cũ',
+                  university: 'Trường A',
+                  major: 'Ngành A',
+                ),
+                activities: const [],
+                onUpdateProfile: (p) => updatedProfile = p,
+                onUpdateGoals: (h, t) {},
+                onUpdateThemeMode: (_) {},
+                onUpdateReminderEnabled: (_) {},
+                onResetStudyData: () async {},
+                onResetProfile: () async {},
+                onResetSampleData: () async {},
+                onResetAllData: () async {},
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const ValueKey('profile_edit_open_button')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Chỉnh sửa hồ sơ cá nhân'), findsOneWidget);
+
+        final nameField = find.byKey(const ValueKey('profile_name_field'));
+        await tester.enterText(nameField, 'Lê Minh Khang');
+
+        await tester.tap(find.byKey(const ValueKey('profile_save_button')));
+        await tester.pumpAndSettle();
+
+        expect(updatedProfile, isNotNull);
+        expect(updatedProfile!.name, 'Lê Minh Khang');
+      },
+    );
+
+    testWidgets(
+      'G8.5-3: Mục tiêu học tập tuần này hiển thị trực quan tỷ lệ % và thông điệp động lực',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+
+        const profile = UserProfile(
+          weeklyTargetHours: 10.0,
+          weeklyTargetTasks: 5,
+        );
+
+        final now = DateTime.now();
+        final activities = [
+          StudyActivity(
+            id: 'act_1',
+            dateKey: '2026-11-11',
+            taskId: 'task_1',
+            subjectId: 'sub_1',
+            completedAt: now,
+            actualMinutes: 300, // 5 giờ = 50%
+          ),
+          StudyActivity(
+            id: 'act_2',
+            dateKey: '2026-11-11',
+            taskId: 'task_2',
+            subjectId: 'sub_1',
+            completedAt: now,
+            actualMinutes:
+                180, // 3 giờ = tổng 8 giờ / 10 giờ = 80%, 2 tasks = 40%
+          ),
+        ];
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ProfileScreen(
+                profile: profile,
+                activities: activities,
+                onUpdateProfile: (_) {},
+                onUpdateGoals: (h, t) {},
+                onUpdateThemeMode: (_) {},
+                onUpdateReminderEnabled: (_) {},
+                onResetStudyData: () async {},
+                onResetProfile: () async {},
+                onResetSampleData: () async {},
+                onResetAllData: () async {},
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Mục tiêu học tập tuần này'), findsOneWidget);
+        expect(find.text('8 / 10 giờ'), findsOneWidget);
+        expect(find.text('80%'), findsOneWidget);
+        expect(find.text('2 / 5 việc'), findsOneWidget);
+        expect(find.text('40%'), findsOneWidget);
+        expect(
+          find.text(
+            'Tiến độ được tính từ các hoạt động học tập thực tế trong tuần.',
+          ),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets('G8.5-4: Chỉnh sửa mục tiêu học tập tuần qua GoalsEditDialog', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 2200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      double? savedHours;
+      int? savedTasks;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ProfileScreen(
+              profile: const UserProfile(
+                weeklyTargetHours: 10.0,
+                weeklyTargetTasks: 5,
+              ),
+              activities: const [],
+              onUpdateProfile: (_) {},
+              onUpdateGoals: (h, t) {
+                savedHours = h;
+                savedTasks = t;
+              },
+              onUpdateThemeMode: (_) {},
+              onUpdateReminderEnabled: (_) {},
+              onResetStudyData: () async {},
+              onResetProfile: () async {},
+              onResetSampleData: () async {},
+              onResetAllData: () async {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('goals_edit_open_button')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Thiết lập mục tiêu tuần'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('goals_save_button')));
+      await tester.pumpAndSettle();
+
+      expect(savedHours, isNotNull);
+      expect(savedTasks, isNotNull);
+    });
+
+    testWidgets(
+      'G8.5-5: Chuyển đổi giao diện Sáng kích hoạt onUpdateThemeMode(\'light\')',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+
+        String? selectedTheme;
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ProfileScreen(
+                profile: const UserProfile(themeMode: 'system'),
+                activities: const [],
+                onUpdateProfile: (_) {},
+                onUpdateGoals: (h, t) {},
+                onUpdateThemeMode: (mode) => selectedTheme = mode,
+                onUpdateReminderEnabled: (_) {},
+                onResetStudyData: () async {},
+                onResetProfile: () async {},
+                onResetSampleData: () async {},
+                onResetAllData: () async {},
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Sáng'));
+        await tester.pumpAndSettle();
+
+        expect(selectedTheme, 'light');
+      },
+    );
+
+    testWidgets(
+      'G8.5-6: Chuyển đổi giao diện Tối kích hoạt onUpdateThemeMode(\'dark\')',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+
+        String? selectedTheme;
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ProfileScreen(
+                profile: const UserProfile(themeMode: 'light'),
+                activities: const [],
+                onUpdateProfile: (_) {},
+                onUpdateGoals: (h, t) {},
+                onUpdateThemeMode: (mode) => selectedTheme = mode,
+                onUpdateReminderEnabled: (_) {},
+                onResetStudyData: () async {},
+                onResetProfile: () async {},
+                onResetSampleData: () async {},
+                onResetAllData: () async {},
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Tối'));
+        await tester.pumpAndSettle();
+
+        expect(selectedTheme, 'dark');
+      },
+    );
+
+    testWidgets(
+      'G8.5-7: Chuyển đổi giao diện Hệ thống kích hoạt onUpdateThemeMode(\'system\')',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+
+        String? selectedTheme;
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ProfileScreen(
+                profile: const UserProfile(themeMode: 'dark'),
+                activities: const [],
+                onUpdateProfile: (_) {},
+                onUpdateGoals: (h, t) {},
+                onUpdateThemeMode: (mode) => selectedTheme = mode,
+                onUpdateReminderEnabled: (_) {},
+                onResetStudyData: () async {},
+                onResetProfile: () async {},
+                onResetSampleData: () async {},
+                onResetAllData: () async {},
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Hệ thống'));
+        await tester.pumpAndSettle();
+
+        expect(selectedTheme, 'system');
+      },
+    );
+
+    testWidgets('G8.5-8: Tùy chọn nhắc nhở lưu thành công khi bật/tắt switch', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 2200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      bool? reminderValue;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ProfileScreen(
+              profile: const UserProfile(reminderEnabled: false),
+              activities: const [],
+              onUpdateProfile: (_) {},
+              onUpdateGoals: (h, t) {},
+              onUpdateThemeMode: (_) {},
+              onUpdateReminderEnabled: (val) => reminderValue = val,
+              onResetStudyData: () async {},
+              onResetProfile: () async {},
+              onResetSampleData: () async {},
+              onResetAllData: () async {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('reminder_switch')));
+      await tester.pumpAndSettle();
+
+      expect(reminderValue, isTrue);
+    });
+
+    testWidgets(
+      'G8.5-9: Nhắc nhở học tập giải thích rõ ràng, tránh hiểu lầm push notification tự động',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ProfileScreen(
+                profile: const UserProfile(),
+                activities: const [],
+                onUpdateProfile: (_) {},
+                onUpdateGoals: (h, t) {},
+                onUpdateThemeMode: (_) {},
+                onUpdateReminderEnabled: (_) {},
+                onResetStudyData: () async {},
+                onResetProfile: () async {},
+                onResetSampleData: () async {},
+                onResetAllData: () async {},
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Nhắc nhở học tập hàng ngày'), findsOneWidget);
+        expect(
+          find.text(
+            'Ghi nhận nhu cầu nhắc nhở học tập. Tính năng thông báo đẩy tự động trên thiết bị sẽ được bổ sung trong bản cập nhật sau.',
+          ),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'G8.5-10: Hộp thoại đặt lại dữ liệu học tập ghi rõ phạm vi xóa và giữ lại',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ProfileScreen(
+                profile: const UserProfile(),
+                activities: const [],
+                onUpdateProfile: (_) {},
+                onUpdateGoals: (h, t) {},
+                onUpdateThemeMode: (_) {},
+                onUpdateReminderEnabled: (_) {},
+                onResetStudyData: () async {},
+                onResetProfile: () async {},
+                onResetSampleData: () async {},
+                onResetAllData: () async {},
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Đặt lại dữ liệu học tập'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Đặt lại toàn bộ dữ liệu học tập?'), findsOneWidget);
+        expect(find.textContaining('Dữ liệu bị xóa'), findsOneWidget);
+        expect(find.textContaining('Dữ liệu giữ lại'), findsOneWidget);
+        expect(find.text('Xác nhận xóa'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'G8.5-11: Hộp thoại đặt lại hồ sơ cá nhân bảo toàn môn học và công việc',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+
+        bool resetProfileCalled = false;
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ProfileScreen(
+                profile: const UserProfile(),
+                activities: const [],
+                onUpdateProfile: (_) {},
+                onUpdateGoals: (h, t) {},
+                onUpdateThemeMode: (_) {},
+                onUpdateReminderEnabled: (_) {},
+                onResetStudyData: () async {},
+                onResetProfile: () async {
+                  resetProfileCalled = true;
+                },
+                onResetSampleData: () async {},
+                onResetAllData: () async {},
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Đặt lại hồ sơ cá nhân'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Đặt lại hồ sơ cá nhân?'), findsOneWidget);
+        expect(find.textContaining('Dữ liệu giữ lại'), findsOneWidget);
+        expect(find.text('Đặt lại hồ sơ'), findsOneWidget);
+
+        await tester.tap(find.text('Đặt lại hồ sơ'));
+        await tester.pumpAndSettle();
+
+        expect(resetProfileCalled, isTrue);
+      },
+    );
+
+    testWidgets(
+      'G8.5-12: Hộp thoại khôi phục toàn bộ ứng dụng có cảnh báo xóa sạch toàn bộ',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+
+        bool resetAllCalled = false;
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ProfileScreen(
+                profile: const UserProfile(),
+                activities: const [],
+                onUpdateProfile: (_) {},
+                onUpdateGoals: (h, t) {},
+                onUpdateThemeMode: (_) {},
+                onUpdateReminderEnabled: (_) {},
+                onResetStudyData: () async {},
+                onResetProfile: () async {},
+                onResetSampleData: () async {},
+                onResetAllData: () async {
+                  resetAllCalled = true;
+                },
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Khôi phục toàn bộ ứng dụng'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Xác nhận khôi phục toàn bộ?'), findsOneWidget);
+        expect(
+          find.textContaining('CẢNH BÁO: Toàn bộ dữ liệu của bạn'),
+          findsOneWidget,
+        );
+        expect(find.text('Xóa tất cả'), findsOneWidget);
+
+        await tester.tap(find.text('Xóa tất cả'));
+        await tester.pumpAndSettle();
+
+        expect(resetAllCalled, isTrue);
+      },
+    );
+
+    testWidgets(
+      'G8.5-13: Khôi phục dữ liệu mẫu ẩn khi showDebugOptions = false và hiện khi showDebugOptions = true',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+
+        // 1. Chế độ sinh viên bình thường (showDebugOptions: false)
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ProfileScreen(
+                profile: const UserProfile(),
+                activities: const [],
+                showDebugOptions: false,
+                onUpdateProfile: (_) {},
+                onUpdateGoals: (h, t) {},
+                onUpdateThemeMode: (_) {},
+                onUpdateReminderEnabled: (_) {},
+                onResetStudyData: () async {},
+                onResetProfile: () async {},
+                onResetSampleData: () async {},
+                onResetAllData: () async {},
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.textContaining('Khôi phục dữ liệu mẫu'), findsNothing);
+
+        // 2. Chế độ debug/testing (showDebugOptions: true)
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ProfileScreen(
+                profile: const UserProfile(),
+                activities: const [],
+                showDebugOptions: true,
+                onUpdateProfile: (_) {},
+                onUpdateGoals: (h, t) {},
+                onUpdateThemeMode: (_) {},
+                onUpdateReminderEnabled: (_) {},
+                onResetStudyData: () async {},
+                onResetProfile: () async {},
+                onResetSampleData: () async {},
+                onResetAllData: () async {},
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.textContaining('Khôi phục dữ liệu mẫu'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'G8.5-14: Thông tin ứng dụng hiển thị đúng ExamPilot, Phiên bản 1.0.0, không lộ milestone/DB nội bộ',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ProfileScreen(
+                profile: const UserProfile(),
+                activities: const [],
+                onUpdateProfile: (_) {},
+                onUpdateGoals: (h, t) {},
+                onUpdateThemeMode: (_) {},
+                onUpdateReminderEnabled: (_) {},
+                onResetStudyData: () async {},
+                onResetProfile: () async {},
+                onResetSampleData: () async {},
+                onResetAllData: () async {},
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Thông tin ứng dụng'), findsOneWidget);
+        expect(find.text('ExamPilot'), findsOneWidget);
+        expect(find.text('Phiên bản 1.0.0'), findsOneWidget);
+        expect(
+          find.text(
+            'Ứng dụng lập kế hoạch và đồng hành tự học dành cho sinh viên.',
+          ),
+          findsOneWidget,
+        );
+
+        // Đảm bảo không chứa thông tin nội bộ nhà phát triển
+        expect(find.textContaining('Giai đoạn 6'), findsNothing);
+        expect(find.textContaining('SQLite cục bộ (v6)'), findsNothing);
+        expect(find.textContaining('exampilot.db'), findsNothing);
       },
     );
   });

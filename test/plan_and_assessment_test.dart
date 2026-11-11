@@ -367,4 +367,417 @@ void main() {
       expect(savedReview, 'Đã hiểu toàn bộ định lý và áp dụng tốt.');
     });
   });
+
+  group('G8.2: Hoàn thiện UX Kế hoạch học tập (Tìm kiếm, Sắp xếp, FAB Padding)', () {
+    final now = DateTime.now();
+    final testSubjects = [
+      const Subject(id: 'subj_1', name: 'Toán cao cấp', description: ''),
+      const Subject(id: 'subj_2', name: 'Lập trình Web', description: ''),
+      const Subject(id: 'subj_3', name: 'Cơ sở dữ liệu', description: ''),
+    ];
+
+    Widget buildPlanScreen(List<StudyTask> tasks) {
+      return MaterialApp(
+        home: Scaffold(
+          body: PlanScreen(
+            tasks: tasks,
+            subjects: testSubjects,
+            onToggleComplete: (_) {},
+            onTapTask: (_) {},
+            onEditTask: (_) {},
+            onDeleteTask: (_) {},
+            onAddTask: () {},
+          ),
+        ),
+      );
+    }
+
+    testWidgets('G8.2-1: Tìm kiếm theo tên công việc', (tester) async {
+      final tasks = [
+        StudyTask(
+          id: 't1',
+          title: 'Giải tích hàm một biến',
+          subjectId: 'subj_1',
+          subject: 'Toán cao cấp',
+          deadline: now.add(const Duration(hours: 1)),
+          estimatedMinutes: 30,
+        ),
+        StudyTask(
+          id: 't2',
+          title: 'Thiết kế lược đồ ERD',
+          subjectId: 'subj_3',
+          subject: 'Cơ sở dữ liệu',
+          deadline: now.add(const Duration(hours: 2)),
+          estimatedMinutes: 45,
+        ),
+      ];
+
+      await tester.pumpWidget(buildPlanScreen(tasks));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'Giải tích');
+      await tester.pumpAndSettle();
+
+      expect(find.text('Giải tích hàm một biến'), findsOneWidget);
+      expect(find.text('Thiết kế lược đồ ERD'), findsNothing);
+    });
+
+    testWidgets('G8.2-2: Tìm kiếm theo mô tả công việc (notes & reviewNotes)', (
+      tester,
+    ) async {
+      final tasks = [
+        StudyTask(
+          id: 't1',
+          title: 'Bài tập 1',
+          subjectId: 'subj_1',
+          subject: 'Toán cao cấp',
+          deadline: now.add(const Duration(hours: 1)),
+          estimatedMinutes: 30,
+          notes: 'Lưu ý công thức Fermat và Maclaurin',
+        ),
+        StudyTask(
+          id: 't2',
+          title: 'Bài tập 2',
+          subjectId: 'subj_3',
+          subject: 'Cơ sở dữ liệu',
+          deadline: now.add(const Duration(hours: 2)),
+          estimatedMinutes: 45,
+          reviewNotes: 'Khái niệm chỉ mục B-Tree và Hash index',
+        ),
+      ];
+
+      await tester.pumpWidget(buildPlanScreen(tasks));
+      await tester.pumpAndSettle();
+
+      // Tìm theo notes
+      await tester.enterText(find.byType(TextField), 'Fermat');
+      await tester.pumpAndSettle();
+      expect(find.text('Bài tập 1'), findsOneWidget);
+      expect(find.text('Bài tập 2'), findsNothing);
+
+      // Tìm theo reviewNotes
+      await tester.enterText(find.byType(TextField), 'B-Tree');
+      await tester.pumpAndSettle();
+      expect(find.text('Bài tập 2'), findsOneWidget);
+      expect(find.text('Bài tập 1'), findsNothing);
+    });
+
+    testWidgets('G8.2-3: Tìm kiếm theo tên môn học liên kết', (tester) async {
+      final tasks = [
+        StudyTask(
+          id: 't1',
+          title: 'Chuẩn bị bài thuyết trình',
+          subjectId: 'subj_3',
+          subject: 'Cơ sở dữ liệu',
+          deadline: now.add(const Duration(hours: 3)),
+          estimatedMinutes: 60,
+        ),
+        StudyTask(
+          id: 't2',
+          title: 'Làm bài trắc nghiệm',
+          subjectId: 'subj_1',
+          subject: 'Toán cao cấp',
+          deadline: now.add(const Duration(hours: 4)),
+          estimatedMinutes: 20,
+        ),
+      ];
+
+      await tester.pumpWidget(buildPlanScreen(tasks));
+      await tester.pumpAndSettle();
+
+      // Nhập tên môn 'Cơ sở dữ liệu'
+      await tester.enterText(find.byType(TextField), 'Cơ sở dữ liệu');
+      await tester.pumpAndSettle();
+
+      expect(find.text('Chuẩn bị bài thuyết trình'), findsOneWidget);
+      expect(find.text('Làm bài trắc nghiệm'), findsNothing);
+    });
+
+    testWidgets('G8.2-4: Tìm kiếm không phân biệt hoa thường', (tester) async {
+      final tasks = [
+        StudyTask(
+          id: 't1',
+          title: 'Thực hành SQL Query',
+          subjectId: 'subj_3',
+          subject: 'Cơ sở dữ liệu',
+          deadline: now.add(const Duration(hours: 3)),
+          estimatedMinutes: 60,
+        ),
+      ];
+
+      await tester.pumpWidget(buildPlanScreen(tasks));
+      await tester.pumpAndSettle();
+
+      // Nhập chữ thường 'cơ sở dữ liệu'
+      await tester.enterText(find.byType(TextField), 'cơ sở dữ liệu');
+      await tester.pumpAndSettle();
+      expect(find.text('Thực hành SQL Query'), findsOneWidget);
+
+      // Nhập HOA 'CƠ SỞ DỮ LIỆU'
+      await tester.enterText(find.byType(TextField), 'CƠ SỞ DỮ LIỆU');
+      await tester.pumpAndSettle();
+      expect(find.text('Thực hành SQL Query'), findsOneWidget);
+
+      // Nhập 'sql query'
+      await tester.enterText(find.byType(TextField), 'sql query');
+      await tester.pumpAndSettle();
+      expect(find.text('Thực hành SQL Query'), findsOneWidget);
+    });
+
+    testWidgets('G8.2-5: Kết hợp tìm kiếm với bộ lọc trạng thái', (
+      tester,
+    ) async {
+      final tasks = [
+        StudyTask(
+          id: 't1',
+          title: 'Bài tập 1 Toán',
+          subjectId: 'subj_1',
+          subject: 'Toán cao cấp',
+          deadline: now.add(const Duration(hours: 1)),
+          estimatedMinutes: 30,
+          status: TaskStatus.todo,
+        ),
+        StudyTask(
+          id: 't2',
+          title: 'Bài tập 2 Toán',
+          subjectId: 'subj_1',
+          subject: 'Toán cao cấp',
+          deadline: now.add(const Duration(hours: 2)),
+          estimatedMinutes: 30,
+          status: TaskStatus.completed,
+        ),
+        StudyTask(
+          id: 't3',
+          title: 'Bài tập 3 Web',
+          subjectId: 'subj_2',
+          subject: 'Lập trình Web',
+          deadline: now.add(const Duration(hours: 3)),
+          estimatedMinutes: 30,
+          status: TaskStatus.todo,
+        ),
+      ];
+
+      await tester.pumpWidget(buildPlanScreen(tasks));
+      await tester.pumpAndSettle();
+
+      // Bật lọc 'Chưa làm'
+      await tester.tap(find.text('Chưa làm'));
+      await tester.pumpAndSettle();
+
+      // Nhập tìm kiếm 'Toán'
+      await tester.enterText(find.byType(TextField), 'Toán');
+      await tester.pumpAndSettle();
+
+      // Chỉ có Bài tập 1 Toán (todo) thỏa mãn cả hai điều kiện
+      expect(find.text('Bài tập 1 Toán'), findsOneWidget);
+      expect(find.text('Bài tập 2 Toán'), findsNothing);
+      expect(find.text('Bài tập 3 Web'), findsNothing);
+    });
+
+    testWidgets('G8.2-6: Kết hợp tìm kiếm với bộ lọc môn học', (tester) async {
+      final tasks = [
+        StudyTask(
+          id: 't1',
+          title: 'Ôn thi trắc nghiệm',
+          subjectId: 'subj_1',
+          subject: 'Toán cao cấp',
+          deadline: now.add(const Duration(hours: 1)),
+          estimatedMinutes: 30,
+        ),
+        StudyTask(
+          id: 't2',
+          title: 'Ôn thi trắc nghiệm',
+          subjectId: 'subj_3',
+          subject: 'Cơ sở dữ liệu',
+          deadline: now.add(const Duration(hours: 2)),
+          estimatedMinutes: 45,
+        ),
+      ];
+
+      await tester.pumpWidget(buildPlanScreen(tasks));
+      await tester.pumpAndSettle();
+
+      // Chọn lọc môn 'Toán cao cấp'
+      await tester.tap(find.widgetWithText(ActionChip, 'Toán cao cấp'));
+      await tester.pumpAndSettle();
+
+      // Tìm kiếm 'trắc nghiệm'
+      await tester.enterText(find.byType(TextField), 'trắc nghiệm');
+      await tester.pumpAndSettle();
+
+      expect(
+        find.widgetWithText(TaskCard, 'Ôn thi trắc nghiệm'),
+        findsOneWidget,
+      );
+      // Kiểm tra chỉ còn nhiệm vụ của Toán cao cấp, không còn nhiệm vụ của Cơ sở dữ liệu
+      expect(find.widgetWithText(TaskCard, 'Toán cao cấp'), findsOneWidget);
+      expect(find.widgetWithText(TaskCard, 'Cơ sở dữ liệu'), findsNothing);
+    });
+
+    testWidgets('G8.2-7: Sắp xếp deadline khi có công việc không có deadline', (
+      tester,
+    ) async {
+      final tasks = [
+        StudyTask(
+          id: 't_no_deadline',
+          title: 'Việc không hạn chót',
+          subjectId: 'subj_1',
+          subject: 'Toán cao cấp',
+          deadline: null,
+          estimatedMinutes: 30,
+        ),
+        StudyTask(
+          id: 't_soon',
+          title: 'Việc hạn gần',
+          subjectId: 'subj_1',
+          subject: 'Toán cao cấp',
+          deadline: now.add(const Duration(hours: 2)),
+          estimatedMinutes: 30,
+        ),
+        StudyTask(
+          id: 't_later',
+          title: 'Việc hạn xa',
+          subjectId: 'subj_1',
+          subject: 'Toán cao cấp',
+          deadline: now.add(const Duration(days: 5)),
+          estimatedMinutes: 30,
+        ),
+      ];
+
+      await tester.pumpWidget(buildPlanScreen(tasks));
+      await tester.pumpAndSettle();
+
+      // Mặc định sắp xếp 'Hạn chót gần nhất': Việc hạn gần -> Việc hạn xa -> Việc không hạn chót
+      final firstPos = tester.getTopLeft(find.text('Việc hạn gần')).dy;
+      final secondPos = tester.getTopLeft(find.text('Việc hạn xa')).dy;
+      final thirdPos = tester.getTopLeft(find.text('Việc không hạn chót')).dy;
+
+      expect(firstPos < secondPos, isTrue);
+      expect(secondPos < thirdPos, isTrue);
+      expect(find.text('Không có hạn chót'), findsOneWidget);
+    });
+
+    testWidgets('G8.2-8: Sắp xếp theo ưu tiên và theo trạng thái', (
+      tester,
+    ) async {
+      final tasks = [
+        StudyTask(
+          id: 't_low',
+          title: 'Việc ưu tiên thấp',
+          subjectId: 'subj_1',
+          subject: 'Toán cao cấp',
+          priority: TaskPriority.low,
+          status: TaskStatus.completed,
+          deadline: now.add(const Duration(hours: 1)),
+        ),
+        StudyTask(
+          id: 't_high',
+          title: 'Việc ưu tiên cao',
+          subjectId: 'subj_1',
+          subject: 'Toán cao cấp',
+          priority: TaskPriority.high,
+          status: TaskStatus.todo,
+          deadline: now.add(const Duration(hours: 2)),
+        ),
+        StudyTask(
+          id: 't_med',
+          title: 'Việc ưu tiên trung bình',
+          subjectId: 'subj_1',
+          subject: 'Toán cao cấp',
+          priority: TaskPriority.medium,
+          status: TaskStatus.inProgress,
+          deadline: now.add(const Duration(hours: 3)),
+        ),
+      ];
+
+      await tester.pumpWidget(buildPlanScreen(tasks));
+      await tester.pumpAndSettle();
+
+      // Mở menu sắp xếp và chọn 'Ưu tiên cao nhất'
+      await tester.tap(find.byTooltip('Sắp xếp danh sách'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Ưu tiên cao nhất'));
+      await tester.pumpAndSettle();
+
+      final highPos = tester.getTopLeft(find.text('Việc ưu tiên cao')).dy;
+      final medPos = tester.getTopLeft(find.text('Việc ưu tiên trung bình')).dy;
+      final lowPos = tester.getTopLeft(find.text('Việc ưu tiên thấp')).dy;
+
+      expect(highPos < medPos, isTrue);
+      expect(medPos < lowPos, isTrue);
+
+      // Mở menu sắp xếp và chọn 'Trạng thái công việc'
+      await tester.tap(find.byTooltip('Sắp xếp danh sách'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Trạng thái công việc'));
+      await tester.pumpAndSettle();
+
+      // Thứ tự trạng thái: todo (Việc ưu tiên cao) -> inProgress (Việc ưu tiên trung bình) -> completed (Việc ưu tiên thấp)
+      final statusTodoPos = tester.getTopLeft(find.text('Việc ưu tiên cao')).dy;
+      final statusInProgPos = tester
+          .getTopLeft(find.text('Việc ưu tiên trung bình'))
+          .dy;
+      final statusCompPos = tester
+          .getTopLeft(find.text('Việc ưu tiên thấp'))
+          .dy;
+
+      expect(statusTodoPos < statusInProgPos, isTrue);
+      expect(statusInProgPos < statusCompPos, isTrue);
+    });
+
+    testWidgets(
+      'G8.2-9: FAB không che nội dung cuối danh sách (Bottom padding >= 80dp)',
+      (tester) async {
+        final tasks = List.generate(
+          10,
+          (i) => StudyTask(
+            id: 'task_$i',
+            title: 'Nhiệm vụ dài $i',
+            subjectId: 'subj_1',
+            subject: 'Toán cao cấp',
+            deadline: now.add(Duration(hours: i + 1)),
+          ),
+        );
+
+        await tester.pumpWidget(buildPlanScreen(tasks));
+        await tester.pumpAndSettle();
+
+        // Kiểm tra ListView có bottom padding >= 80dp để đảm bảo không bị FAB che
+        final listView = tester.widget<ListView>(find.byType(ListView));
+        final padding = listView.padding as EdgeInsets;
+        expect(padding.bottom, greaterThanOrEqualTo(80.0));
+      },
+    );
+
+    testWidgets(
+      'G8.2-10: Hiển thị đúng Empty State khi không có kết quả và xóa bộ lọc',
+      (tester) async {
+        final tasks = [
+          StudyTask(
+            id: 't1',
+            title: 'Học bài',
+            subjectId: 'subj_1',
+            subject: 'Toán cao cấp',
+            deadline: now.add(const Duration(hours: 1)),
+          ),
+        ];
+
+        await tester.pumpWidget(buildPlanScreen(tasks));
+        await tester.pumpAndSettle();
+
+        // Tìm từ khóa vô nghĩa
+        await tester.enterText(find.byType(TextField), 'zyxwvu_invalid');
+        await tester.pumpAndSettle();
+
+        expect(find.text('Không tìm thấy kết quả phù hợp'), findsOneWidget);
+        expect(find.text('Xóa tất cả bộ lọc & tìm kiếm'), findsOneWidget);
+
+        // Bấm nút xóa bộ lọc
+        await tester.tap(find.text('Xóa tất cả bộ lọc & tìm kiếm'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Học bài'), findsOneWidget);
+      },
+    );
+  });
 }

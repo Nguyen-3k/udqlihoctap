@@ -1064,4 +1064,453 @@ void main() {
       },
     );
   });
+
+  group('G8.1: Kiểm thử phân tách hai nhóm dữ liệu & Các trường hợp biên', () {
+    final now = DateTime(2026, 11, 10, 15, 0); // Thứ Ba ngày 10/11/2026
+    const subjectMath = Subject(
+      id: 'sub_math',
+      name: 'Toán cao cấp',
+      description: 'Đại số & Giải tích',
+      color: Color(0xFF3B5BDB),
+    );
+    const subjectWeb = Subject(
+      id: 'sub_web',
+      name: 'Lập trình Web',
+      description: 'Frontend Flutter Web',
+      color: Color(0xFF0284C7),
+    );
+
+    test(
+      'G8.1-TH1: Phân tách hoàn hảo trường hợp Audit G8.0 (3 việc hiện có, 1 đã xong, 2 chưa xong; 3 lượt hoàn thành trong 7 ngày)',
+      () {
+        final tasks = [
+          StudyTask(
+            id: 't1',
+            title: 'Bài tập 1 (hoàn thành)',
+            subjectId: 'sub_math',
+            subject: 'Toán cao cấp',
+            deadline: now,
+            estimatedMinutes: 45,
+            status: TaskStatus.completed,
+            actualMinutes: 45,
+          ),
+          StudyTask(
+            id: 't2',
+            title: 'Bài tập 2 (đang làm)',
+            subjectId: 'sub_math',
+            subject: 'Toán cao cấp',
+            deadline: now.add(const Duration(days: 1)),
+            estimatedMinutes: 30,
+            status: TaskStatus.inProgress,
+          ),
+          StudyTask(
+            id: 't3',
+            title: 'Bài tập 3 (chưa làm)',
+            subjectId: 'sub_web',
+            subject: 'Lập trình Web',
+            deadline: now.add(const Duration(days: 2)),
+            estimatedMinutes: 60,
+            status: TaskStatus.todo,
+          ),
+        ];
+
+        // 3 hoạt động ghi nhận trong 7 ngày qua (ví dụ: làm t1, rồi từng làm bài t4 và t5 nay đã hoàn thành)
+        final activities = [
+          StudyActivity(
+            id: 'act_1',
+            dateKey: '2026-11-10',
+            taskId: 't1',
+            completedAt: now,
+            actualMinutes: 45,
+            subjectId: 'sub_math',
+          ),
+          StudyActivity(
+            id: 'act_2',
+            dateKey: '2026-11-08',
+            taskId: 'task_archived_1',
+            completedAt: now.subtract(const Duration(days: 2)),
+            actualMinutes: 30,
+            subjectId: 'sub_web',
+          ),
+          StudyActivity(
+            id: 'act_3',
+            dateKey: '2026-11-06',
+            taskId: 'task_archived_2',
+            completedAt: now.subtract(const Duration(days: 4)),
+            actualMinutes: 40,
+            subjectId: 'sub_math',
+          ),
+        ];
+
+        final stats = StudyStatisticsCalculator.calculate(
+          tasks: tasks,
+          subjects: [subjectMath, subjectWeb],
+          activities: activities,
+          period: StatisticsPeriod.last7Days,
+          now: now,
+        );
+
+        // Nhóm A: Hoạt động học tập trong kỳ 7 ngày
+        expect(stats.periodCompletedTasks, 3);
+        expect(stats.totalActualMinutes, 115); // 45 + 30 + 40
+
+        // Nhóm B: Trạng thái danh mục hiện tại (Toàn bộ)
+        expect(stats.totalTasks, 3);
+        expect(stats.currentCompletedTasks, 1);
+        expect(stats.inProgressTasks, 1);
+        expect(stats.todoTasks, 1);
+        expect(stats.pendingTasks, 2); // 1 inProgress + 1 todo
+        expect(stats.currentCompletionRate, closeTo(1 / 3, 0.001));
+
+        // Kiểm chứng tính nhất quán: currentCompletedTasks + inProgressTasks + todoTasks == totalTasks
+        expect(
+          stats.currentCompletedTasks + stats.inProgressTasks + stats.todoTasks,
+          stats.totalTasks,
+        );
+        // Kiểm chứng: Nhóm A và Nhóm B không bị gộp chung làm 1
+        expect(
+          stats.periodCompletedTasks != stats.currentCompletedTasks,
+          isTrue,
+        );
+      },
+    );
+
+    test(
+      'G8.1-TH2: Có hoạt động lịch sử nhưng công việc đã bị xóa khỏi danh mục (tasks rỗng)',
+      () {
+        final activities = [
+          StudyActivity(
+            id: 'act_del_1',
+            dateKey: '2026-11-10',
+            taskId: 'deleted_task',
+            completedAt: now,
+            actualMinutes: 45,
+            subjectId: 'sub_math',
+          ),
+        ];
+
+        final stats = StudyStatisticsCalculator.calculate(
+          tasks: [], // Công việc đã bị xóa khỏi danh mục
+          subjects: [subjectMath],
+          activities: activities,
+          period: StatisticsPeriod.last7Days,
+          now: now,
+        );
+
+        // Nhóm A bảo toàn thành tích lịch sử tự học
+        expect(stats.periodCompletedTasks, 1);
+        expect(stats.totalActualMinutes, 45);
+
+        // Nhóm B phản ánh chính xác danh mục rỗng
+        expect(stats.totalTasks, 0);
+        expect(stats.currentCompletedTasks, 0);
+        expect(stats.pendingTasks, 0);
+        expect(stats.currentCompletionRate, 0.0);
+      },
+    );
+
+    test(
+      'G8.1-TH3: Có công việc nhưng chưa hoàn thành (chỉ có todo và inProgress)',
+      () {
+        final tasks = [
+          StudyTask(
+            id: 't_todo',
+            title: 'Việc chưa làm',
+            subjectId: 'sub_math',
+            subject: 'Toán cao cấp',
+            deadline: now,
+            estimatedMinutes: 30,
+            status: TaskStatus.todo,
+          ),
+          StudyTask(
+            id: 't_prog',
+            title: 'Việc đang làm',
+            subjectId: 'sub_web',
+            subject: 'Lập trình Web',
+            deadline: now,
+            estimatedMinutes: 40,
+            status: TaskStatus.inProgress,
+          ),
+        ];
+
+        final stats = StudyStatisticsCalculator.calculate(
+          tasks: tasks,
+          subjects: [subjectMath, subjectWeb],
+          activities: [],
+          period: StatisticsPeriod.last7Days,
+          now: now,
+        );
+
+        // Nhóm B: Danh mục
+        expect(stats.totalTasks, 2);
+        expect(stats.currentCompletedTasks, 0);
+        expect(stats.inProgressTasks, 1);
+        expect(stats.todoTasks, 1);
+        expect(stats.pendingTasks, 2);
+        expect(stats.currentCompletionRate, 0.0);
+
+        // Nhóm A: Chưa có hoạt động
+        expect(stats.periodCompletedTasks, 0);
+        expect(stats.totalActualMinutes, 0);
+      },
+    );
+
+    test('G8.1-TH4: Công việc hoàn thành từ kỳ trước (45 ngày trước)', () {
+      final day45Ago = now.subtract(const Duration(days: 45));
+      final task = StudyTask(
+        id: 'task_old',
+        title: 'Việc cũ',
+        subjectId: 'sub_math',
+        subject: 'Toán cao cấp',
+        deadline: day45Ago,
+        estimatedMinutes: 60,
+        status: TaskStatus.completed,
+        actualMinutes: 60,
+      );
+      final activity = StudyActivity(
+        id: 'act_old',
+        dateKey: StudyStreak.formatDateKey(day45Ago),
+        taskId: 'task_old',
+        completedAt: day45Ago,
+        actualMinutes: 60,
+        subjectId: 'sub_math',
+      );
+
+      // 1. last7Days: Nhóm A không có hoạt động
+      final stats7 = StudyStatisticsCalculator.calculate(
+        tasks: [task],
+        subjects: [subjectMath],
+        activities: [activity],
+        period: StatisticsPeriod.last7Days,
+        now: now,
+      );
+      expect(stats7.periodCompletedTasks, 0);
+      expect(stats7.totalActualMinutes, 0);
+      expect(
+        stats7.currentCompletedTasks,
+        1,
+      ); // Danh mục vẫn tính là đã hoàn thành
+      expect(stats7.totalTasks, 1);
+
+      // 2. last30Days: Nhóm A vẫn là 0
+      final stats30 = StudyStatisticsCalculator.calculate(
+        tasks: [task],
+        subjects: [subjectMath],
+        activities: [activity],
+        period: StatisticsPeriod.last30Days,
+        now: now,
+      );
+      expect(stats30.periodCompletedTasks, 0);
+      expect(stats30.totalActualMinutes, 0);
+      expect(stats30.currentCompletedTasks, 1);
+
+      // 3. allTime: Nhóm A ghi nhận hoạt động
+      final statsAll = StudyStatisticsCalculator.calculate(
+        tasks: [task],
+        subjects: [subjectMath],
+        activities: [activity],
+        period: StatisticsPeriod.allTime,
+        now: now,
+      );
+      expect(statsAll.periodCompletedTasks, 1);
+      expect(statsAll.totalActualMinutes, 60);
+      expect(statsAll.currentCompletedTasks, 1);
+    });
+
+    test('G8.1-TH5: Hoàn thành nhiều công việc trong cùng ngày', () {
+      final activitiesSameDay = [
+        StudyActivity(
+          id: 'act_same_1',
+          dateKey: '2026-11-10',
+          taskId: 't_same_1',
+          completedAt: DateTime(2026, 11, 10, 9, 0),
+          actualMinutes: 25,
+          subjectId: 'sub_math',
+        ),
+        StudyActivity(
+          id: 'act_same_2',
+          dateKey: '2026-11-10',
+          taskId: 't_same_2',
+          completedAt: DateTime(2026, 11, 10, 14, 0),
+          actualMinutes: 35,
+          subjectId: 'sub_math',
+        ),
+        StudyActivity(
+          id: 'act_same_3',
+          dateKey: '2026-11-10',
+          taskId: 't_same_3',
+          completedAt: DateTime(2026, 11, 10, 20, 0),
+          actualMinutes: 40,
+          subjectId: 'sub_web',
+        ),
+      ];
+
+      final stats = StudyStatisticsCalculator.calculate(
+        tasks: [],
+        subjects: [subjectMath, subjectWeb],
+        activities: activitiesSameDay,
+        period: StatisticsPeriod.last7Days,
+        now: now,
+      );
+
+      expect(stats.periodCompletedTasks, 3);
+      expect(stats.totalActualMinutes, 100); // 25 + 35 + 40
+
+      // Kiểm tra biểu đồ Thứ Ba (10/11) gom đúng 3 bài và 100 phút
+      final tueMetric = stats.weeklyMetrics.firstWhere(
+        (m) => m.weekdayLabel == 'T3',
+      );
+      expect(tueMetric.completedTasks, 3);
+      expect(tueMetric.actualMinutes, 100);
+    });
+
+    test(
+      'G8.1-TH6: Kiểm tra chính xác ngày đầu và ngày cuối của khoảng thống kê (Boundary dates)',
+      () {
+        // Khoảng 7 ngày tính từ 04/11/2026 00:00:00.000 đến 10/11/2026 23:59:59.999
+        final startBoundary = DateTime(2026, 11, 4, 0, 0, 1);
+        final justBeforeBoundary = DateTime(2026, 11, 3, 23, 59, 59);
+        final endBoundary = DateTime(2026, 11, 10, 23, 59, 58);
+
+        final activities = [
+          StudyActivity(
+            id: 'act_start',
+            dateKey: '2026-11-04',
+            taskId: 't_start',
+            completedAt: startBoundary,
+            actualMinutes: 30,
+            subjectId: 'sub_math',
+          ),
+          StudyActivity(
+            id: 'act_before',
+            dateKey: '2026-11-03',
+            taskId: 't_before',
+            completedAt: justBeforeBoundary,
+            actualMinutes: 50,
+            subjectId: 'sub_math',
+          ),
+          StudyActivity(
+            id: 'act_end',
+            dateKey: '2026-11-10',
+            taskId: 't_end',
+            completedAt: endBoundary,
+            actualMinutes: 40,
+            subjectId: 'sub_math',
+          ),
+        ];
+
+        final stats = StudyStatisticsCalculator.calculate(
+          tasks: [],
+          subjects: [subjectMath],
+          activities: activities,
+          period: StatisticsPeriod.last7Days,
+          now: now,
+        );
+
+        // Chỉ có act_start và act_end được tính (act_before bị loại chính xác)
+        expect(stats.periodCompletedTasks, 2);
+        expect(stats.totalActualMinutes, 70); // 30 + 40
+      },
+    );
+
+    test('G8.1-TH7: Thời gian thực tế bằng 0 và không nhập thời lượng', () {
+      final activityZero = StudyActivity(
+        id: 'act_zero',
+        dateKey: '2026-11-10',
+        taskId: 't_zero',
+        completedAt: now,
+        actualMinutes: 0,
+        subjectId: 'sub_math',
+      );
+
+      final stats = StudyStatisticsCalculator.calculate(
+        tasks: [],
+        subjects: [subjectMath],
+        activities: [activityZero],
+        period: StatisticsPeriod.last7Days,
+        now: now,
+      );
+
+      expect(stats.periodCompletedTasks, 1);
+      expect(stats.totalActualMinutes, 0);
+    });
+
+    testWidgets(
+      'G8.1-TH8: Widget test hiển thị rõ ràng 2 nhóm dữ liệu và cấu trúc nhãn mới',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+
+        final testTasks = [
+          StudyTask(
+            id: 'wt1',
+            title: 'Việc xong',
+            subjectId: 'sub_math',
+            subject: 'Toán cao cấp',
+            deadline: now,
+            estimatedMinutes: 60,
+            status: TaskStatus.completed,
+          ),
+          StudyTask(
+            id: 'wt2',
+            title: 'Việc đang làm',
+            subjectId: 'sub_math',
+            subject: 'Toán cao cấp',
+            deadline: now,
+            estimatedMinutes: 30,
+            status: TaskStatus.inProgress,
+          ),
+          StudyTask(
+            id: 'wt3',
+            title: 'Việc chưa làm',
+            subjectId: 'sub_web',
+            subject: 'Lập trình Web',
+            deadline: now,
+            estimatedMinutes: 45,
+            status: TaskStatus.todo,
+          ),
+        ];
+
+        final testActivities = [
+          StudyActivity(
+            id: 'wact1',
+            dateKey: '2026-11-10',
+            taskId: 'wt1',
+            completedAt: now,
+            actualMinutes: 50,
+            subjectId: 'sub_math',
+          ),
+        ];
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: StatisticsScreen(
+                tasks: testTasks,
+                subjects: const [subjectMath, subjectWeb],
+                activities: testActivities,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // 1. Nhóm A: Hoạt động học tập trong kỳ
+        expect(find.text('Hoạt động học tập trong kỳ'), findsOneWidget);
+        expect(find.text('Lượt hoàn thành'), findsOneWidget);
+        expect(find.text('Thời lượng thực tế'), findsOneWidget);
+
+        // 2. Nhóm B: Trạng thái danh mục công việc
+        expect(find.text('Trạng thái danh mục công việc'), findsOneWidget);
+        expect(find.text('Tỷ lệ hoàn thành nhiệm vụ'), findsOneWidget);
+        expect(find.text('Tổng công việc'), findsOneWidget);
+        expect(find.text('Đã hoàn thành'), findsOneWidget);
+        expect(find.text('Đang làm'), findsOneWidget);
+        expect(find.text('Chưa làm'), findsOneWidget);
+        expect(find.text('Chưa hoàn thành'), findsOneWidget);
+        expect(find.text('Môn học quản lý'), findsOneWidget);
+      },
+    );
+  });
 }

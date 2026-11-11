@@ -465,4 +465,436 @@ void main() {
       },
     );
   });
+
+  group('G8.4: Hoàn thiện UX Màn hình Môn học & Chi tiết Môn học', () {
+    const longNameSubject = Subject(
+      id: 'subj_long_name',
+      name:
+          'Kỹ thuật Lập trình Ứng dụng Di động Nâng cao cho Thiết bị Thông minh',
+      description:
+          'Môn học chuyên sâu về Flutter, State Management và Clean Architecture',
+      icon: Icons.developer_mode_rounded,
+      color: Color(0xFF009688),
+    );
+
+    testWidgets(
+      'G8.4-1: Danh sách môn học tinh gọn, loại bỏ InfoCard cố định',
+      (tester) async {
+        final subjects = [longNameSubject];
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SubjectsScreen(
+                subjects: subjects,
+                tasks: const [],
+                onAddSubject: (_) {},
+                onUpdateSubject: (_) {},
+                onDeleteSubject: (_, {migrateToSubjectId}) {},
+                onToggleCompleteTask: (_) {},
+                onTapTask: (_) {},
+                onEditTask: (_) {},
+                onDeleteTask: (_) {},
+                onAddTaskForSubject: (_) {},
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Môn học của tôi'), findsOneWidget);
+        expect(find.textContaining('Quản lý 1 môn học'), findsOneWidget);
+        expect(find.text('Hướng dẫn & Gợi ý'), findsNothing);
+        expect(find.text('Nhấn vào môn để xem chi tiết'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'G8.4-2: Thẻ môn học hiển thị đúng tiến độ và trạng thái 100% hoàn thành',
+      (tester) async {
+        final now = DateTime.now();
+        final tasks = [
+          StudyTask(
+            id: 't_g84_1',
+            title: 'Nhiệm vụ 1',
+            subjectId: longNameSubject.id,
+            subject: longNameSubject.name,
+            deadline: now,
+            status: TaskStatus.completed,
+          ),
+          StudyTask(
+            id: 't_g84_2',
+            title: 'Nhiệm vụ 2',
+            subjectId: longNameSubject.id,
+            subject: longNameSubject.name,
+            deadline: now,
+            status: TaskStatus.completed,
+          ),
+        ];
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SubjectsScreen(
+                subjects: [longNameSubject],
+                tasks: tasks,
+                onAddSubject: (_) {},
+                onUpdateSubject: (_) {},
+                onDeleteSubject: (_, {migrateToSubjectId}) {},
+                onToggleCompleteTask: (_) {},
+                onTapTask: (_) {},
+                onEditTask: (_) {},
+                onDeleteTask: (_) {},
+                onAddTaskForSubject: (_) {},
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Toàn bộ 2 việc đã hoàn thành 🎉'), findsOneWidget);
+        expect(find.text('100%'), findsOneWidget);
+      },
+    );
+
+    testWidgets('G8.4-3: Môn học không có công việc không gây lỗi chia cho 0', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SubjectsScreen(
+              subjects: [longNameSubject],
+              tasks: const [],
+              onAddSubject: (_) {},
+              onUpdateSubject: (_) {},
+              onDeleteSubject: (_, {migrateToSubjectId}) {},
+              onToggleCompleteTask: (_) {},
+              onTapTask: (_) {},
+              onEditTask: (_) {},
+              onDeleteTask: (_) {},
+              onAddTaskForSubject: (_) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Chưa có công việc'), findsOneWidget);
+      expect(find.text('0%'), findsOneWidget);
+    });
+
+    testWidgets('G8.4-4: Tên môn học dài tiếng Việt không gây tràn giao diện', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(360, 640);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SubjectsScreen(
+              subjects: [longNameSubject],
+              tasks: const [],
+              onAddSubject: (_) {},
+              onUpdateSubject: (_) {},
+              onDeleteSubject: (_, {migrateToSubjectId}) {},
+              onToggleCompleteTask: (_) {},
+              onTapTask: (_) {},
+              onEditTask: (_) {},
+              onDeleteTask: (_) {},
+              onAddTaskForSubject: (_) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text(longNameSubject.name), findsOneWidget);
+    });
+
+    testWidgets(
+      'G8.4-5: Bố cục thống kê trên màn hình 360dp hiển thị 2x2 không bị tràn chữ',
+      (tester) async {
+        tester.view.physicalSize = const Size(360, 640);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: SubjectDetailScreen(
+              subject: longNameSubject,
+              allSubjects: [longNameSubject],
+              tasks: const [],
+              onToggleComplete: (_) {},
+              onTapTask: (_) {},
+              onEditTask: (_) {},
+              onDeleteTask: (_) {},
+              onAddTaskForThisSubject: () {},
+              onEditSubject: () {},
+              onDeleteSubject: () {},
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        expect(find.text('Tổng nhiệm vụ'), findsOneWidget);
+        expect(find.text('Đã hoàn thành'), findsOneWidget);
+        expect(find.text('Chưa hoàn thành'), findsOneWidget);
+        expect(find.text('Tỷ lệ'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'G8.4-6: Bố cục vẫn hợp lý và không lỗi trên màn hình siêu hẹp 320dp',
+      (tester) async {
+        tester.view.physicalSize = const Size(320, 480);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: SubjectDetailScreen(
+              subject: longNameSubject,
+              allSubjects: [longNameSubject],
+              tasks: const [],
+              onToggleComplete: (_) {},
+              onTapTask: (_) {},
+              onEditTask: (_) {},
+              onDeleteTask: (_) {},
+              onAddTaskForThisSubject: () {},
+              onEditSubject: () {},
+              onDeleteSubject: () {},
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        expect(find.text('Chưa hoàn thành'), findsOneWidget);
+      },
+    );
+
+    testWidgets('G8.4-7: Bấm vào thẻ môn học mở đúng màn hình chi tiết', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SubjectsScreen(
+              subjects: [longNameSubject],
+              tasks: const [],
+              onAddSubject: (_) {},
+              onUpdateSubject: (_) {},
+              onDeleteSubject: (_, {migrateToSubjectId}) {},
+              onToggleCompleteTask: (_) {},
+              onTapTask: (_) {},
+              onEditTask: (_) {},
+              onDeleteTask: (_) {},
+              onAddTaskForSubject: (_) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text(longNameSubject.name));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SubjectDetailScreen), findsOneWidget);
+      expect(find.text('Thêm việc môn này'), findsOneWidget);
+    });
+
+    testWidgets('G8.4-8: Lọc công việc theo trạng thái hoạt động chính xác', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      final now = DateTime.now();
+      final tasks = [
+        StudyTask(
+          id: 't_todo_1',
+          title: 'Việc cần làm',
+          subjectId: longNameSubject.id,
+          subject: longNameSubject.name,
+          deadline: now,
+          status: TaskStatus.todo,
+        ),
+        StudyTask(
+          id: 't_done_1',
+          title: 'Việc đã làm xong',
+          subjectId: longNameSubject.id,
+          subject: longNameSubject.name,
+          deadline: now,
+          status: TaskStatus.completed,
+        ),
+      ];
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SubjectDetailScreen(
+            subject: longNameSubject,
+            allSubjects: [longNameSubject],
+            tasks: tasks,
+            onToggleComplete: (_) {},
+            onTapTask: (_) {},
+            onEditTask: (_) {},
+            onDeleteTask: (_) {},
+            onAddTaskForThisSubject: () {},
+            onEditSubject: () {},
+            onDeleteSubject: () {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Việc cần làm'), findsOneWidget);
+      expect(find.text('Việc đã làm xong'), findsOneWidget);
+
+      await tester.tap(find.text('Chưa làm'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Việc cần làm'), findsOneWidget);
+      expect(find.text('Việc đã làm xong'), findsNothing);
+    });
+
+    testWidgets(
+      'G8.4-9: Thêm công việc từ chi tiết môn học tự động chọn đúng môn',
+      (tester) async {
+        bool addInvoked = false;
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: SubjectDetailScreen(
+              subject: longNameSubject,
+              allSubjects: [longNameSubject],
+              tasks: const [],
+              onToggleComplete: (_) {},
+              onTapTask: (_) {},
+              onEditTask: (_) {},
+              onDeleteTask: (_) {},
+              onAddTaskForThisSubject: () => addInvoked = true,
+              onEditSubject: () {},
+              onDeleteSubject: () {},
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Thêm nhiệm vụ'));
+        expect(addInvoked, isTrue);
+      },
+    );
+
+    testWidgets('G8.4-10: Hiển thị đúng trên cả Light Mode và Dark Mode', (
+      tester,
+    ) async {
+      for (final brightness in [Brightness.light, Brightness.dark]) {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: ThemeData(brightness: brightness),
+            home: SubjectDetailScreen(
+              subject: longNameSubject,
+              allSubjects: [longNameSubject],
+              tasks: const [],
+              onToggleComplete: (_) {},
+              onTapTask: (_) {},
+              onEditTask: (_) {},
+              onDeleteTask: (_) {},
+              onAddTaskForThisSubject: () {},
+              onEditSubject: () {},
+              onDeleteSubject: () {},
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        expect(find.text('Kiến trúc Phần mềm'), findsNothing);
+        expect(find.text(longNameSubject.name), findsWidgets);
+      }
+    });
+
+    testWidgets('G8.4-11: Empty State hiển thị tự nhiên khi chưa có môn học', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SubjectsScreen(
+              subjects: const [],
+              tasks: const [],
+              onAddSubject: (_) {},
+              onUpdateSubject: (_) {},
+              onDeleteSubject: (_, {migrateToSubjectId}) {},
+              onToggleCompleteTask: (_) {},
+              onTapTask: (_) {},
+              onEditTask: (_) {},
+              onDeleteTask: (_) {},
+              onAddTaskForSubject: (_) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Chưa có môn học nào'), findsOneWidget);
+      expect(find.text('Tạo môn học đầu tiên'), findsOneWidget);
+      expect(find.byIcon(Icons.school_outlined), findsOneWidget);
+    });
+
+    testWidgets(
+      'G8.4-12: Thẻ môn học hiển thị cảnh báo khi có công việc quá hạn',
+      (tester) async {
+        final now = DateTime.now();
+        final overdueTask = StudyTask(
+          id: 't_sub_overdue',
+          title: 'Nhiệm vụ trễ hạn',
+          subjectId: longNameSubject.id,
+          subject: longNameSubject.name,
+          deadline: now.subtract(const Duration(days: 2)),
+          status: TaskStatus.todo,
+        );
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SubjectsScreen(
+                subjects: [longNameSubject],
+                tasks: [overdueTask],
+                onAddSubject: (_) {},
+                onUpdateSubject: (_) {},
+                onDeleteSubject: (_, {migrateToSubjectId}) {},
+                onToggleCompleteTask: (_) {},
+                onTapTask: (_) {},
+                onEditTask: (_) {},
+                onDeleteTask: (_) {},
+                onAddTaskForSubject: (_) {},
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Có 1 việc quá hạn'), findsOneWidget);
+        expect(find.byIcon(Icons.warning_amber_rounded), findsOneWidget);
+      },
+    );
+  });
 }

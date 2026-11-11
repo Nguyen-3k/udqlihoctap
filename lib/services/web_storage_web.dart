@@ -95,12 +95,19 @@ class WebStreakStorage {
     } catch (_) {}
   }
 
-  /// Xóa dữ liệu lưu trữ Web khi người dùng đặt lại dữ liệu.
+  /// Xóa danh sách ngày học và hoạt động học tập (giữ nguyên hồ sơ cá nhân).
+  static void clearStudyActivitiesAndDates() {
+    try {
+      web.window.localStorage.removeItem(_storageKey);
+      web.window.localStorage.removeItem(_activitiesStorageKey);
+    } catch (_) {}
+  }
+
+  /// Xóa dữ liệu ngày học và hoạt động (phục vụ kiểm thử).
   static void clearActiveDates() {
     try {
       web.window.localStorage.removeItem(_storageKey);
       web.window.localStorage.removeItem(_activitiesStorageKey);
-      web.window.localStorage.removeItem(_profileStorageKey);
     } catch (_) {}
   }
 }

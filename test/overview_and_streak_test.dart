@@ -311,39 +311,38 @@ void main() {
   });
 
   group('Kiểm thử Giao diện Màn hình Tổng quan (OverviewScreen)', () {
-    testWidgets('Hiển thị lời chào, ngày tiếng Việt và nút Thêm việc', (
-      tester,
-    ) async {
-      bool addTapped = false;
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: OverviewScreen(
-              tasks: const [],
-              studyStreak: const StudyStreak(
-                currentStreak: 3,
-                longestStreak: 5,
-                activeDates: {},
+    testWidgets(
+      'Hiển thị lời chào, ngày tiếng Việt và không có nút Thêm việc trùng lặp trên header',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: OverviewScreen(
+                tasks: const [],
+                studyStreak: const StudyStreak(
+                  currentStreak: 3,
+                  longestStreak: 5,
+                  activeDates: {},
+                ),
+                onToggleComplete: (_) {},
+                onTapTask: (_) {},
+                onEditTask: (_) {},
+                onDeleteTask: (_) {},
+                onAddTask: () {},
+                onGoToPlan: () {},
               ),
-              onToggleComplete: (_) {},
-              onTapTask: (_) {},
-              onEditTask: (_) {},
-              onDeleteTask: (_) {},
-              onAddTask: () => addTapped = true,
-              onGoToPlan: () {},
             ),
           ),
-        ),
-      );
+        );
 
-      // Lời chào và Thêm việc
-      expect(find.byType(OverviewScreen), findsOneWidget);
-      expect(find.widgetWithText(FilledButton, 'Thêm việc'), findsOneWidget);
-
-      await tester.tap(find.widgetWithText(FilledButton, 'Thêm việc'));
-      expect(addTapped, isTrue);
-    });
+        // Lời chào và Ngày hiện tại
+        expect(find.byType(OverviewScreen), findsOneWidget);
+        expect(find.textContaining('Chào buổi'), findsOneWidget);
+        expect(find.textContaining(', ngày '), findsOneWidget);
+        // Không có FilledButton Thêm việc trùng lặp trên header Dashboard
+        expect(find.widgetWithText(FilledButton, 'Thêm việc'), findsNothing);
+      },
+    );
 
     testWidgets(
       'Thẻ Study Streak hiển thị thông tin số ngày, ngọn lửa, kỷ lục và 7 ngày trong tuần',
@@ -527,7 +526,7 @@ void main() {
         // Khu vực quá hạn
         expect(find.text('Công việc quá hạn (1)'), findsOneWidget);
         expect(find.text('Báo cáo thực tập nộp gấp'), findsOneWidget);
-        expect(find.byIcon(Icons.warning_amber_rounded), findsOneWidget);
+        expect(find.byIcon(Icons.warning_amber_rounded), findsWidgets);
         expect(
           find.text(
             'Có 1 bài tập đã quá hạn nộp. Hãy ưu tiên hoàn thành ngay!',
@@ -619,5 +618,343 @@ void main() {
       await tester.tap(find.text('Quản lý theo Môn học'));
       expect(subjectsNavigated, isTrue);
     });
+  });
+
+  group('G8.3: Hoàn thiện UX Màn hình Tổng quan', () {
+    testWidgets(
+      'G8.3-1: Công việc quá hạn có badge Quá hạn và ưu tiên hiển thị trước Cần làm hôm nay',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 1600);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
+        final now = DateTime.now();
+        final overdueTask = StudyTask(
+          id: 't_overdue_g83',
+          title: 'Bài tập Giải tích quá hạn',
+          subjectId: 'subj_math',
+          subject: 'Toán',
+          deadline: now.subtract(const Duration(days: 3)),
+          estimatedMinutes: 60,
+          priority: TaskPriority.high,
+          status: TaskStatus.todo,
+        );
+        final todayTask = StudyTask(
+          id: 't_today_g83',
+          title: 'Học lập trình Flutter hôm nay',
+          subjectId: 'subj_it',
+          subject: 'Lập trình',
+          deadline: DateTime(now.year, now.month, now.day, 20, 0),
+          estimatedMinutes: 45,
+          priority: TaskPriority.medium,
+          status: TaskStatus.todo,
+        );
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: OverviewScreen(
+                tasks: [overdueTask, todayTask],
+                studyStreak: const StudyStreak(
+                  currentStreak: 1,
+                  longestStreak: 2,
+                  activeDates: {},
+                ),
+                onToggleComplete: (_) {},
+                onTapTask: (_) {},
+                onEditTask: (_) {},
+                onDeleteTask: (_) {},
+                onAddTask: () {},
+                onGoToPlan: () {},
+              ),
+            ),
+          ),
+        );
+
+        // 1. Nhận diện rõ ràng
+        expect(find.text('Công việc quá hạn (1)'), findsOneWidget);
+        expect(find.text('Bài tập Giải tích quá hạn'), findsOneWidget);
+        expect(find.text('Quá hạn'), findsWidgets);
+
+        // 2. Ưu tiên hiển thị: Vị trí của header Quá hạn phải nằm trên Cần làm hôm nay
+        final overduePos = tester.getTopLeft(
+          find.text('Công việc quá hạn (1)'),
+        );
+        final todayPos = tester.getTopLeft(find.text('Cần làm hôm nay (1)'));
+        expect(overduePos.dy < todayPos.dy, isTrue);
+      },
+    );
+
+    testWidgets(
+      'G8.3-2: Công việc đã hoàn thành dù deadline trong quá khứ KHÔNG hiển thị quá hạn',
+      (tester) async {
+        final now = DateTime.now();
+        final completedTask = StudyTask(
+          id: 't_done_past',
+          title: 'Bài kiểm tra đã nộp tuần trước',
+          subjectId: 'subj_1',
+          subject: 'Toán',
+          deadline: now.subtract(const Duration(days: 7)),
+          status: TaskStatus.completed,
+        );
+
+        expect(completedTask.isOverdue, isFalse);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: OverviewScreen(
+                tasks: [completedTask],
+                studyStreak: const StudyStreak(
+                  currentStreak: 0,
+                  longestStreak: 0,
+                  activeDates: {},
+                ),
+                onToggleComplete: (_) {},
+                onTapTask: (_) {},
+                onEditTask: (_) {},
+                onDeleteTask: (_) {},
+                onAddTask: () {},
+                onGoToPlan: () {},
+              ),
+            ),
+          ),
+        );
+
+        expect(find.text('Công việc quá hạn (1)'), findsNothing);
+        expect(find.text('Quá hạn'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'G8.3-3: Công việc không có hạn chót (deadline == null) xử lý an toàn không lỗi',
+      (tester) async {
+        final noDeadTask = StudyTask(
+          id: 't_nodead',
+          title: 'Đọc giáo trình khi rảnh',
+          subjectId: 'subj_2',
+          subject: 'Lập trình',
+          deadline: null,
+          status: TaskStatus.todo,
+        );
+
+        expect(noDeadTask.isOverdue, isFalse);
+        expect(noDeadTask.isDueSoon, isFalse);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: OverviewScreen(
+                tasks: [noDeadTask],
+                studyStreak: const StudyStreak(
+                  currentStreak: 0,
+                  longestStreak: 0,
+                  activeDates: {},
+                ),
+                onToggleComplete: (_) {},
+                onTapTask: (_) {},
+                onEditTask: (_) {},
+                onDeleteTask: (_) {},
+                onAddTask: () {},
+                onGoToPlan: () {},
+              ),
+            ),
+          ),
+        );
+
+        expect(find.text('Công việc quá hạn'), findsNothing);
+        expect(find.text('Quá hạn'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'G8.3-4: Công việc sắp đến hạn trong 48h có badge Sắp đến hạn',
+      (tester) async {
+        final now = DateTime.now();
+        final dueSoonTask = StudyTask(
+          id: 't_duesoon',
+          title: 'Tiểu luận Triết nộp ngày mai',
+          subjectId: 'subj_3',
+          subject: 'Triết',
+          deadline: now.add(const Duration(hours: 36)),
+          status: TaskStatus.todo,
+        );
+
+        expect(dueSoonTask.isDueSoon, isTrue);
+        expect(dueSoonTask.isOverdue, isFalse);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: OverviewScreen(
+                tasks: [dueSoonTask],
+                studyStreak: const StudyStreak(
+                  currentStreak: 0,
+                  longestStreak: 0,
+                  activeDates: {},
+                ),
+                onToggleComplete: (_) {},
+                onTapTask: (_) {},
+                onEditTask: (_) {},
+                onDeleteTask: (_) {},
+                onAddTask: () {},
+                onGoToPlan: () {},
+              ),
+            ),
+          ),
+        );
+
+        expect(find.text('Sắp đến hạn (1)'), findsOneWidget);
+        expect(find.text('Sắp đến hạn'), findsWidgets);
+      },
+    );
+
+    testWidgets(
+      'G8.3-5: Không có nút Thêm việc trùng lặp trên Dashboard header',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: OverviewScreen(
+                tasks: const [],
+                studyStreak: const StudyStreak(
+                  currentStreak: 0,
+                  longestStreak: 0,
+                  activeDates: {},
+                ),
+                onToggleComplete: (_) {},
+                onTapTask: (_) {},
+                onEditTask: (_) {},
+                onDeleteTask: (_) {},
+                onAddTask: () {},
+                onGoToPlan: () {},
+              ),
+            ),
+          ),
+        );
+
+        expect(find.widgetWithText(FilledButton, 'Thêm việc'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'G8.3-6: Khắc phục FAB che nội dung với bottom padding >= 80dp',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: OverviewScreen(
+                tasks: const [],
+                studyStreak: const StudyStreak(
+                  currentStreak: 0,
+                  longestStreak: 0,
+                  activeDates: {},
+                ),
+                onToggleComplete: (_) {},
+                onTapTask: (_) {},
+                onEditTask: (_) {},
+                onDeleteTask: (_) {},
+                onAddTask: () {},
+                onGoToPlan: () {},
+              ),
+            ),
+          ),
+        );
+
+        final scrollViewFinder = find.byType(SingleChildScrollView);
+        expect(scrollViewFinder, findsOneWidget);
+        final scrollView = tester.widget<SingleChildScrollView>(
+          scrollViewFinder,
+        );
+        final padding = scrollView.padding as EdgeInsets;
+        expect(padding.bottom >= 80.0, isTrue);
+      },
+    );
+
+    testWidgets(
+      'G8.3-7: Hiển thị tự nhiên khi không có công việc (Empty State)',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: OverviewScreen(
+                tasks: const [],
+                studyStreak: const StudyStreak(
+                  currentStreak: 0,
+                  longestStreak: 0,
+                  activeDates: {},
+                ),
+                onToggleComplete: (_) {},
+                onTapTask: (_) {},
+                onEditTask: (_) {},
+                onDeleteTask: (_) {},
+                onAddTask: () {},
+                onGoToPlan: () {},
+              ),
+            ),
+          ),
+        );
+
+        expect(
+          find.text('Không có công việc nào đến hạn hôm nay.'),
+          findsOneWidget,
+        );
+        expect(
+          find.text('Không có công việc nào sắp đến hạn trong những ngày tới.'),
+          findsOneWidget,
+        );
+        expect(find.textContaining('Công việc quá hạn'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'G8.3-8: Giữ nguyên các chức năng tương tác (onToggleComplete, onTapTask)',
+      (tester) async {
+        final now = DateTime.now();
+        final task = StudyTask(
+          id: 't_interactive',
+          title: 'Ôn tập Mạng máy tính',
+          subjectId: 'subj_net',
+          subject: 'Mạng',
+          deadline: now.subtract(const Duration(days: 1)),
+          status: TaskStatus.todo,
+        );
+
+        bool toggled = false;
+        bool tapped = false;
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: OverviewScreen(
+                tasks: [task],
+                studyStreak: const StudyStreak(
+                  currentStreak: 0,
+                  longestStreak: 0,
+                  activeDates: {},
+                ),
+                onToggleComplete: (_) => toggled = true,
+                onTapTask: (_) => tapped = true,
+                onEditTask: (_) {},
+                onDeleteTask: (_) {},
+                onAddTask: () {},
+                onGoToPlan: () {},
+              ),
+            ),
+          ),
+        );
+
+        // Tap checkbox
+        await tester.tap(find.byType(Checkbox));
+        expect(toggled, isTrue);
+
+        // Tap task card
+        await tester.tap(find.text('Ôn tập Mạng máy tính'));
+        expect(tapped, isTrue);
+      },
+    );
   });
 }

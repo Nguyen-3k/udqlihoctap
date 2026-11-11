@@ -172,7 +172,9 @@ class TaskDetailSheet extends StatelessWidget {
                   context,
                   icon: Icons.calendar_today_rounded,
                   label: 'Hạn hoàn thành',
-                  value: _formatDateTime(task.deadline),
+                  value: task.deadline != null
+                      ? _formatDateTime(task.deadline!)
+                      : 'Không có hạn chót',
                   color: AppColors.primary,
                 ),
                 _buildDetailItem(

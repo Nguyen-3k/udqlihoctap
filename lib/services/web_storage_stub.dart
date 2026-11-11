@@ -42,10 +42,15 @@ class WebStreakStorage {
     _inMemoryProfile = null;
   }
 
-  /// Xóa dữ liệu (phục vụ kiểm thử).
+  /// Xóa danh sách ngày học và hoạt động học tập (giữ nguyên hồ sơ cá nhân).
+  static void clearStudyActivitiesAndDates() {
+    _inMemoryStorage.clear();
+    _inMemoryActivities.clear();
+  }
+
+  /// Xóa dữ liệu ngày học và hoạt động (phục vụ kiểm thử).
   static void clearActiveDates() {
     _inMemoryStorage.clear();
     _inMemoryActivities.clear();
-    _inMemoryProfile = null;
   }
 }

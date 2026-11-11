@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import '../models/study_task.dart';
 import '../models/subject.dart';
 import '../theme/app_colors.dart';
-import '../widgets/info_card.dart';
 import 'subject_detail_screen.dart';
 
 /// Màn hình Danh sách Môn học (SubjectsScreen).
@@ -463,7 +462,7 @@ class SubjectsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      padding: const EdgeInsets.only(left: 16, top: 16, right: 16, bottom: 24),
       children: [
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -487,6 +486,8 @@ class SubjectsScreen extends StatelessWidget {
                       color: context.textSecondaryColor,
                       fontSize: 13,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ),
@@ -494,6 +495,13 @@ class SubjectsScreen extends StatelessWidget {
             const SizedBox(width: 8),
             FilledButton.icon(
               onPressed: () => _showSubjectFormDialog(context),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                visualDensity: VisualDensity.compact,
+              ),
               icon: const Icon(Icons.add, size: 18),
               label: const Text('Thêm môn'),
             ),
@@ -563,6 +571,8 @@ class SubjectsScreen extends StatelessWidget {
             final completedCount = subjectTasks
                 .where((t) => t.isCompleted)
                 .length;
+            final overdueCount = subjectTasks.where((t) => t.isOverdue).length;
+            final isAllCompleted = taskCount > 0 && completedCount == taskCount;
             final progress = taskCount > 0 ? (completedCount / taskCount) : 0.0;
             final percentInt = (progress * 100).toInt();
 
@@ -612,6 +622,8 @@ class SubjectsScreen extends StatelessWidget {
                                 children: [
                                   Text(
                                     subject.name,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
                                       fontSize: 16,
                                       fontWeight: FontWeight.bold,
@@ -711,22 +723,33 @@ class SubjectsScreen extends StatelessWidget {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text(
-                              taskCount == 0
-                                  ? 'Chưa có công việc'
-                                  : '$completedCount/$taskCount việc đã hoàn thành',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                                color: context.textSecondaryColor,
+                            Expanded(
+                              child: Text(
+                                taskCount == 0
+                                    ? 'Chưa có công việc'
+                                    : (isAllCompleted
+                                          ? 'Toàn bộ $taskCount việc đã hoàn thành 🎉'
+                                          : '$completedCount/$taskCount việc đã hoàn thành'),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                  color: isAllCompleted
+                                      ? AppColors.statusCompleted
+                                      : context.textSecondaryColor,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
+                            const SizedBox(width: 8),
                             Text(
-                              '$percentInt%',
+                              taskCount == 0 ? '0%' : '$percentInt%',
                               style: TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.bold,
-                                color: subject.color,
+                                color: isAllCompleted
+                                    ? AppColors.statusCompleted
+                                    : subject.color,
                               ),
                             ),
                           ],
@@ -740,9 +763,34 @@ class SubjectsScreen extends StatelessWidget {
                             value: progress,
                             minHeight: 6,
                             backgroundColor: context.surfaceMutedColor,
-                            color: subject.color,
+                            color: isAllCompleted
+                                ? AppColors.statusCompleted
+                                : subject.color,
                           ),
                         ),
+
+                        // Nhắc nhở nếu có công việc quá hạn
+                        if (overdueCount > 0) ...[
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.warning_amber_rounded,
+                                size: 13,
+                                color: AppColors.error,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Có $overdueCount việc quá hạn',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: AppColors.error,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -750,24 +798,6 @@ class SubjectsScreen extends StatelessWidget {
               ),
             );
           }),
-
-        const SizedBox(height: 14),
-        Text(
-          'Hướng dẫn & Gợi ý',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: context.textPrimaryColor,
-          ),
-        ),
-        const SizedBox(height: 8),
-        const InfoCard(
-          icon: Icons.touch_app_rounded,
-          iconColor: AppColors.primary,
-          title: 'Nhấn vào môn để xem chi tiết',
-          subtitle:
-              'Bấm vào bất kỳ thẻ môn học nào để xem toàn bộ danh sách bài tập, theo dõi tiến độ và thêm nhiệm vụ riêng cho môn đó.',
-        ),
       ],
     );
   }

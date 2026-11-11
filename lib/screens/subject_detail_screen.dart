@@ -100,6 +100,8 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
       appBar: AppBar(
         title: Text(
           currentSub.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
         ),
         actions: [
@@ -120,7 +122,12 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        padding: const EdgeInsets.only(
+          left: 16,
+          top: 16,
+          right: 16,
+          bottom: 88,
+        ),
         children: [
           // 1. Thẻ thông tin môn học (Tên, mô tả, biểu tượng, màu sắc)
           Container(
@@ -155,6 +162,8 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
                     children: [
                       Text(
                         currentSub.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -195,24 +204,31 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.trending_up_rounded,
-                          size: 18,
-                          color: currentSub.color,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Tiến độ học tập môn này',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: context.textPrimaryColor,
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.trending_up_rounded,
+                            size: 18,
+                            color: currentSub.color,
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'Tiến độ học tập môn này',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: context.textPrimaryColor,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
+                    const SizedBox(width: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 8,
@@ -240,7 +256,9 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
                     value: progress,
                     minHeight: 8,
                     backgroundColor: context.surfaceMutedColor,
-                    color: currentSub.color,
+                    color: completedCount == totalCount && totalCount > 0
+                        ? AppColors.statusCompleted
+                        : currentSub.color,
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -265,44 +283,101 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
           const SizedBox(height: 14),
 
           // 3. Lưới chỉ số tổng quan (Tổng nhiệm vụ, Đã hoàn thành, Chưa hoàn thành, Tỷ lệ)
-          Row(
-            children: [
-              Expanded(
-                child: _buildMetricItem(
-                  label: 'Tổng nhiệm vụ',
-                  value: '$totalCount',
-                  color: AppColors.primary,
-                  icon: Icons.list_alt_rounded,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildMetricItem(
-                  label: 'Đã hoàn thành',
-                  value: '$completedCount',
-                  color: AppColors.statusCompleted,
-                  icon: Icons.check_circle_rounded,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildMetricItem(
-                  label: 'Chưa hoàn thành',
-                  value: '$uncompletedCount',
-                  color: AppColors.statusInProgress,
-                  icon: Icons.timelapse_rounded,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildMetricItem(
-                  label: 'Tỷ lệ',
-                  value: '$percentInt%',
-                  color: currentSub.color,
-                  icon: Icons.pie_chart_rounded,
-                ),
-              ),
-            ],
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isNarrow = constraints.maxWidth < 420;
+              if (isNarrow) {
+                // Bố cục 2x2 chống tràn chữ trên màn hình nhỏ/hẹp (<= 420dp)
+                return Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildMetricItem(
+                            label: 'Tổng nhiệm vụ',
+                            value: '$totalCount',
+                            color: AppColors.primary,
+                            icon: Icons.list_alt_rounded,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _buildMetricItem(
+                            label: 'Đã hoàn thành',
+                            value: '$completedCount',
+                            color: AppColors.statusCompleted,
+                            icon: Icons.check_circle_rounded,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildMetricItem(
+                            label: 'Chưa hoàn thành',
+                            value: '$uncompletedCount',
+                            color: AppColors.statusInProgress,
+                            icon: Icons.timelapse_rounded,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _buildMetricItem(
+                            label: 'Tỷ lệ',
+                            value: '$percentInt%',
+                            color: currentSub.color,
+                            icon: Icons.pie_chart_rounded,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                );
+              }
+
+              // Bố cục 4 cột cân đối trên màn hình lớn (> 420dp)
+              return Row(
+                children: [
+                  Expanded(
+                    child: _buildMetricItem(
+                      label: 'Tổng nhiệm vụ',
+                      value: '$totalCount',
+                      color: AppColors.primary,
+                      icon: Icons.list_alt_rounded,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _buildMetricItem(
+                      label: 'Đã hoàn thành',
+                      value: '$completedCount',
+                      color: AppColors.statusCompleted,
+                      icon: Icons.check_circle_rounded,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _buildMetricItem(
+                      label: 'Chưa hoàn thành',
+                      value: '$uncompletedCount',
+                      color: AppColors.statusInProgress,
+                      icon: Icons.timelapse_rounded,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _buildMetricItem(
+                      label: 'Tỷ lệ',
+                      value: '$percentInt%',
+                      color: currentSub.color,
+                      icon: Icons.pie_chart_rounded,
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
 
           const SizedBox(height: 18),
@@ -311,16 +386,28 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'Nhiệm vụ của môn ($totalCount)',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: context.textPrimaryColor,
+              Expanded(
+                child: Text(
+                  'Nhiệm vụ của môn ($totalCount)',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: context.textPrimaryColor,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
+              const SizedBox(width: 8),
               TextButton.icon(
                 onPressed: widget.onAddTaskForThisSubject,
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  visualDensity: VisualDensity.compact,
+                ),
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('Thêm nhiệm vụ'),
               ),
@@ -450,6 +537,7 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
                 onDelete: () => _handleDeleteTask(task),
               ),
             ),
+          const SizedBox(height: 16),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -498,21 +586,22 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
     required IconData icon,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
       decoration: BoxDecoration(
         color: context.surfaceColor,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: context.borderColor),
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            padding: const EdgeInsets.all(5),
+            padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
               color: color.withValues(alpha: 0.1),
               shape: BoxShape.circle,
             ),
-            child: Icon(icon, size: 15, color: color),
+            child: Icon(icon, size: 16, color: color),
           ),
           const SizedBox(height: 6),
           Text(
@@ -527,7 +616,7 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
           Text(
             label,
             style: TextStyle(
-              fontSize: 10,
+              fontSize: 11,
               fontWeight: FontWeight.w500,
               color: context.textSecondaryColor,
             ),

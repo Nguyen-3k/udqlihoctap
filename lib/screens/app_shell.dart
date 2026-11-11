@@ -8,11 +8,14 @@ import '../models/task_priority.dart';
 import '../models/task_status.dart';
 import '../models/understanding_level.dart';
 import '../models/user_profile.dart';
+import '../database/database_helper.dart';
 import '../repositories/profile_repository.dart';
 import '../repositories/subject_repository.dart';
 import '../repositories/task_repository.dart';
+import '../services/backup_service.dart';
 import '../theme/app_colors.dart';
 import '../services/web_storage.dart';
+import '../widgets/backup_dialogs.dart';
 import '../widgets/task_assessment_dialog.dart';
 import '../widgets/task_detail_sheet.dart';
 import '../widgets/task_form_dialog.dart';
@@ -70,6 +73,10 @@ class _AppShellState extends State<AppShell> {
   // Thông tin hồ sơ cá nhân, mục tiêu và cài đặt (Giai đoạn 5)
   UserProfile _userProfile = const UserProfile();
 
+  // Dịch vụ sao lưu và khôi phục dữ liệu (Giai đoạn 8.7)
+  late final BackupService _backupService;
+  DateTime? _lastBackupTime;
+
   @override
   void initState() {
     super.initState();
@@ -78,6 +85,12 @@ class _AppShellState extends State<AppShell> {
     _profileRepository =
         widget.profileRepository ??
         ProfileRepository(useWebPreview: _taskRepository.isWebPreview);
+    _backupService = BackupService(
+      taskRepository: _taskRepository,
+      subjectRepository: _subjectRepository,
+      profileRepository: _profileRepository,
+      dbHelper: _taskRepository.isWebPreview ? null : DatabaseHelper.instance,
+    );
     _loadData();
   }
 
@@ -616,6 +629,77 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
+  // --- CÔNG CỤ SAO LƯU VÀ KHÔI PHỤC DỮ LIỆU (G8.7) ---
+
+  Future<void> _handleBackupData() async {
+    try {
+      final backupMap = await _backupService.createBackupData();
+      final jsonString = _backupService.exportBackupJson(backupMap);
+      final savedPath = await _backupService.saveBackupToFile(jsonString);
+
+      if (!mounted) return;
+      setState(() {
+        _lastBackupTime = BackupService.lastBackupTime;
+      });
+
+      showDialog(
+        context: context,
+        builder: (ctx) => BackupSuccessDialog(
+          backupMap: backupMap,
+          jsonString: jsonString,
+          filePath: savedPath,
+          backupService: _backupService,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      _showNotification('Lỗi khi sao lưu dữ liệu: $e', isError: true);
+    }
+  }
+
+  Future<void> _handleRestoreData() async {
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => RestoreInputDialog(
+        backupService: _backupService,
+        onValidBackup: (validationResult) {
+          final preview = validationResult.preview;
+          final backupMap = validationResult.backupMap;
+          if (preview == null || backupMap == null) return;
+
+          showDialog(
+            context: context,
+            builder: (previewCtx) => RestorePreviewDialog(
+              preview: preview,
+              onConfirmRestore: () async {
+                try {
+                  await _backupService.restoreBackup(backupMap);
+                  await _loadData();
+                  if (!mounted) return;
+                  setState(() {
+                    _lastBackupTime = BackupService.lastBackupTime;
+                  });
+                  widget.onThemeModeChanged?.call(
+                    _userProfile.flutterThemeMode,
+                  );
+                  _showNotification(
+                    'Khôi phục dữ liệu thành công! Đã nạp ${preview.totalSubjects} môn học và ${preview.totalTasks} công việc.',
+                  );
+                } catch (e) {
+                  if (!mounted) return;
+                  _showNotification(
+                    'Lỗi khi khôi phục dữ liệu: $e',
+                    isError: true,
+                  );
+                }
+              },
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   // --- CÔNG CỤ DỌN DẸP / KHÔI PHỤC DỮ LIỆU ---
 
   Future<void> _resetSampleData() async {
@@ -638,15 +722,19 @@ class _AppShellState extends State<AppShell> {
     return Scaffold(
       appBar: AppBar(
         title: const Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.school_rounded, color: AppColors.primary, size: 26),
+            Icon(Icons.school_rounded, color: AppColors.primary, size: 24),
             SizedBox(width: 8),
-            Text(
-              'ExamPilot',
-              style: TextStyle(
-                color: AppColors.primary,
-                fontWeight: FontWeight.bold,
-                fontSize: 20,
+            Flexible(
+              child: Text(
+                'ExamPilot',
+                style: TextStyle(
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 19,
+                ),
+                overflow: TextOverflow.ellipsis,
               ),
             ),
           ],
@@ -895,6 +983,9 @@ class _AppShellState extends State<AppShell> {
       ProfileScreen(
         profile: _userProfile,
         activities: _activities,
+        lastBackupTime: _lastBackupTime,
+        onBackupData: _handleBackupData,
+        onRestoreData: _handleRestoreData,
         onUpdateProfile: _updateProfile,
         onUpdateGoals: _updateGoals,
         onUpdateThemeMode: _updateThemeMode,

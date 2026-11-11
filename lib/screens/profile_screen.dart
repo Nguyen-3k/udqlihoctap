@@ -20,6 +20,10 @@ class ProfileScreen extends StatelessWidget {
   final Future<void> Function() onResetProfile;
   final Future<void> Function() onResetSampleData;
   final Future<void> Function() onResetAllData;
+  final bool showDebugOptions;
+  final DateTime? lastBackupTime;
+  final Future<void> Function()? onBackupData;
+  final Future<void> Function()? onRestoreData;
 
   const ProfileScreen({
     super.key,
@@ -33,6 +37,10 @@ class ProfileScreen extends StatelessWidget {
     required this.onResetProfile,
     required this.onResetSampleData,
     required this.onResetAllData,
+    this.showDebugOptions = kDebugMode,
+    this.lastBackupTime,
+    this.onBackupData,
+    this.onRestoreData,
   });
 
   /// Tính toán tiến độ thực tế đạt mục tiêu trong tuần hiện tại (Thứ Hai -> Chủ Nhật)
@@ -172,11 +180,15 @@ class ProfileScreen extends StatelessWidget {
         _buildSettingsSection(context),
         const SizedBox(height: 16),
 
-        // 4. Khối Quản lý dữ liệu & Đặt lại
+        // 4. Khối Sao lưu & Khôi phục dữ liệu
+        _buildBackupRestoreSection(context),
+        const SizedBox(height: 16),
+
+        // 5. Khối Quản lý dữ liệu & Đặt lại
         _buildDataManagementSection(context),
         const SizedBox(height: 16),
 
-        // 5. Khối Thông tin phiên bản & Ứng dụng
+        // 6. Khối Thông tin phiên bản & Ứng dụng
         _buildAboutSection(context),
         const SizedBox(height: 24),
       ],
@@ -240,6 +252,8 @@ class ProfileScreen extends StatelessWidget {
               color: context.textPrimaryColor,
             ),
             textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
           ),
           const SizedBox(height: 6),
 
@@ -380,23 +394,28 @@ class ProfileScreen extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  const Icon(
-                    Icons.track_changes_rounded,
-                    color: AppColors.primary,
-                    size: 22,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Mục tiêu học tập tuần này',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: context.textPrimaryColor,
+              Expanded(
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.track_changes_rounded,
+                      color: AppColors.primary,
+                      size: 22,
                     ),
-                  ),
-                ],
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Mục tiêu học tập tuần này',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: context.textPrimaryColor,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
               ),
               IconButton(
                 key: const ValueKey('goals_edit_open_button'),
@@ -413,14 +432,18 @@ class ProfileScreen extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'Thời lượng học tập',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: context.textPrimaryColor,
+              Flexible(
+                child: Text(
+                  'Thời lượng học tập',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: context.textPrimaryColor,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
+              const SizedBox(width: 8),
               Text(
                 '$hoursFormatted / $targetHoursFormatted giờ',
                 style: const TextStyle(
@@ -449,20 +472,24 @@ class ProfileScreen extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                progress.isHoursAchieved
-                    ? '🎉 Đã đạt mục tiêu thời lượng!'
-                    : 'Còn thiếu ${progress.remainingHours.toStringAsFixed(1)} giờ',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: progress.isHoursAchieved
-                      ? AppColors.success
-                      : context.textSecondaryColor,
-                  fontWeight: progress.isHoursAchieved
-                      ? FontWeight.bold
-                      : FontWeight.normal,
+              Flexible(
+                child: Text(
+                  progress.isHoursAchieved
+                      ? '🎉 Đã đạt mục tiêu thời lượng!'
+                      : 'Còn thiếu ${progress.remainingHours.toStringAsFixed(1)} giờ',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: progress.isHoursAchieved
+                        ? AppColors.success
+                        : context.textSecondaryColor,
+                    fontWeight: progress.isHoursAchieved
+                        ? FontWeight.bold
+                        : FontWeight.normal,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
+              const SizedBox(width: 8),
               Text(
                 '${(progress.hoursRate * 100).toInt()}%',
                 style: TextStyle(
@@ -479,14 +506,18 @@ class ProfileScreen extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'Số công việc hoàn thành',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: context.textPrimaryColor,
+              Flexible(
+                child: Text(
+                  'Số công việc hoàn thành',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: context.textPrimaryColor,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
+              const SizedBox(width: 8),
               Text(
                 '${progress.actualTasks} / ${progress.targetTasks} việc',
                 style: const TextStyle(
@@ -515,20 +546,24 @@ class ProfileScreen extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                progress.isTasksAchieved
-                    ? '🎉 Đã đạt mục tiêu công việc!'
-                    : 'Còn thiếu ${progress.remainingTasks} công việc',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: progress.isTasksAchieved
-                      ? AppColors.success
-                      : context.textSecondaryColor,
-                  fontWeight: progress.isTasksAchieved
-                      ? FontWeight.bold
-                      : FontWeight.normal,
+              Flexible(
+                child: Text(
+                  progress.isTasksAchieved
+                      ? '🎉 Đã đạt mục tiêu công việc!'
+                      : 'Còn thiếu ${progress.remainingTasks} công việc',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: progress.isTasksAchieved
+                        ? AppColors.success
+                        : context.textSecondaryColor,
+                    fontWeight: progress.isTasksAchieved
+                        ? FontWeight.bold
+                        : FontWeight.normal,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
+              const SizedBox(width: 8),
               Text(
                 '${(progress.tasksRate * 100).toInt()}%',
                 style: TextStyle(
@@ -689,7 +724,7 @@ class ProfileScreen extends StatelessWidget {
                 ),
               ),
               subtitle: Text(
-                'Lưu tùy chọn nhắc nhở học tập (Thông báo đẩy tự động sẽ được triển khai ở bản cập nhật sau)',
+                'Ghi nhận nhu cầu nhắc nhở học tập. Tính năng thông báo đẩy tự động trên thiết bị sẽ được bổ sung trong bản cập nhật sau.',
                 style: TextStyle(
                   fontSize: 12,
                   color: context.textSecondaryColor,
@@ -706,16 +741,83 @@ class ProfileScreen extends StatelessWidget {
         ),
         const SizedBox(height: 10),
 
-        // Trạng thái lưu trữ theo môi trường chạy
+        // Trạng thái lưu trữ bảo mật & ngoại tuyến
         InfoCard(
-          icon: kIsWeb ? Icons.cloud_done_outlined : Icons.storage_rounded,
+          icon: kIsWeb ? Icons.cloud_done_outlined : Icons.shield_outlined,
           iconColor: AppColors.primary,
-          title: kIsWeb
-              ? 'Môi trường Web Preview (localStorage)'
-              : 'Cơ sở dữ liệu SQLite cục bộ (v6)',
+          title: kIsWeb ? 'Bản xem trước Web' : 'Lưu trữ ngoại tuyến an toàn',
           subtitle: kIsWeb
-              ? 'Hồ sơ, mục tiêu học tập và cài đặt được lưu bền vững trên localStorage của trình duyệt, không mất khi reload.'
-              : 'Dữ liệu công việc, môn học, lịch sử và hồ sơ cá nhân được lưu an toàn trong file exampilot.db.',
+              ? 'Dữ liệu hồ sơ và cài đặt được lưu trên trình duyệt của bạn phục vụ xem trước giao diện.'
+              : 'Dữ liệu hồ sơ, mục tiêu và kế hoạch học tập được lưu trữ an toàn ngay trên thiết bị của bạn, bảo đảm quyền riêng tư và hoạt động mượt mà không cần mạng internet.',
+        ),
+      ],
+    );
+  }
+
+  // --- WIDGET SAO LƯU & KHÔI PHỤC DỮ LIỆU ---
+
+  Widget _buildBackupRestoreSection(BuildContext context) {
+    String? formattedLastBackup;
+    if (lastBackupTime != null) {
+      final local = lastBackupTime!.toLocal();
+      final d = local.day.toString().padLeft(2, '0');
+      final m = local.month.toString().padLeft(2, '0');
+      final y = local.year;
+      final hr = local.hour.toString().padLeft(2, '0');
+      final min = local.minute.toString().padLeft(2, '0');
+      formattedLastBackup = '$hr:$min, $d/$m/$y';
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Flexible(
+              child: Text(
+                'Sao lưu & Khôi phục',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: context.textPrimaryColor,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (formattedLastBackup != null)
+              Text(
+                'Gần nhất: $formattedLastBackup',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: context.textSecondaryColor,
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 10),
+
+        // 1. Nút sao lưu dữ liệu
+        InfoCard(
+          key: const ValueKey('backup_data_button'),
+          icon: Icons.cloud_upload_outlined,
+          iconColor: AppColors.primary,
+          title: 'Sao lưu dữ liệu',
+          subtitle:
+              'Xuất toàn bộ môn học, công việc, lịch sử hoạt động và hồ sơ cá nhân thành tệp JSON an toàn.',
+          onTap: onBackupData != null ? () => onBackupData!() : null,
+        ),
+        const SizedBox(height: 8),
+
+        // 2. Nút khôi phục dữ liệu
+        InfoCard(
+          key: const ValueKey('restore_data_button'),
+          icon: Icons.settings_backup_restore_rounded,
+          iconColor: AppColors.priorityMedium,
+          title: 'Khôi phục dữ liệu',
+          subtitle:
+              'Nhập tệp sao lưu hoặc mã JSON đã lưu để phục hồi toàn bộ dữ liệu và tiến trình học tập.',
+          onTap: onRestoreData != null ? () => onRestoreData!() : null,
         ),
       ],
     );
@@ -737,39 +839,19 @@ class ProfileScreen extends StatelessWidget {
         ),
         const SizedBox(height: 10),
 
-        // 1. Đặt lại tiến độ học tập (giữ nguyên hồ sơ cá nhân & môn học)
-        InfoCard(
-          icon: Icons.refresh_rounded,
-          iconColor: AppColors.primary,
-          title: 'Khôi phục dữ liệu mẫu',
-          subtitle:
-              'Nạp lại 4 môn học mặc định và 3 nhiệm vụ mẫu ban đầu phục vụ kiểm thử giao diện.',
-          onTap: () {
-            _showConfirmationDialog(
-              context,
-              title: 'Khôi phục dữ liệu mẫu?',
-              message:
-                  'Hành động này sẽ ghi lại các môn học mặc định và công việc mẫu. Thông tin hồ sơ cá nhân của bạn sẽ được giữ nguyên.',
-              confirmLabel: 'Khôi phục mẫu',
-              onConfirm: onResetSampleData,
-            );
-          },
-        ),
-        const SizedBox(height: 8),
-
-        // 2. Đặt lại dữ liệu học tập (xóa công việc, hoạt động, streak)
+        // 1. Đặt lại dữ liệu học tập (xóa công việc, hoạt động, streak; giữ hồ sơ và môn học)
         InfoCard(
           icon: Icons.cleaning_services_outlined,
           iconColor: AppColors.priorityMedium,
           title: 'Đặt lại dữ liệu học tập',
           subtitle:
-              'Xóa toàn bộ nhiệm vụ, lịch sử hoạt động và chuỗi học tập (Streak). Thông tin hồ sơ cá nhân được giữ nguyên.',
+              'Xóa toàn bộ nhiệm vụ, lịch sử hoạt động và chuỗi học tập (Streak). Thông tin hồ sơ cá nhân và môn học được giữ nguyên.',
           onTap: () {
             _showConfirmationDialog(
               context,
-              title: 'Xóa toàn bộ công việc học tập?',
+              title: 'Đặt lại toàn bộ dữ liệu học tập?',
               message:
-                  'Hành động này sẽ xóa sạch tất cả công việc, lịch sử làm bài và Study Streak để kiểm tra trạng thái rỗng. Thông tin hồ sơ cá nhân của bạn sẽ KHÔNG bị mất.',
+                  'Hành động này sẽ xóa sạch tất cả công việc, lịch sử làm bài và chuỗi học tập (Streak) đã tích lũy.\n\n• Dữ liệu bị xóa: Tất cả công việc, nhật ký học tập, chuỗi ngày học.\n• Dữ liệu giữ lại: Thông tin hồ sơ cá nhân và danh mục môn học của bạn.',
               confirmLabel: 'Xác nhận xóa',
               onConfirm: onResetStudyData,
             );
@@ -777,19 +859,19 @@ class ProfileScreen extends StatelessWidget {
         ),
         const SizedBox(height: 8),
 
-        // 3. Đặt lại thông tin cá nhân (giữ nguyên dữ liệu học tập)
+        // 2. Đặt lại thông tin cá nhân (giữ nguyên dữ liệu học tập và môn học)
         InfoCard(
           icon: Icons.person_remove_outlined,
           iconColor: AppColors.priorityMedium,
           title: 'Đặt lại hồ sơ cá nhân',
           subtitle:
-              'Xóa tên, trường đại học, ngành học và đưa mục tiêu học tập về mặc định. Dữ liệu công việc được giữ nguyên.',
+              'Xóa tên, trường đại học, ngành học và đưa mục tiêu học tập về mặc định. Dữ liệu công việc và môn học được giữ nguyên.',
           onTap: () {
             _showConfirmationDialog(
               context,
               title: 'Đặt lại hồ sơ cá nhân?',
               message:
-                  'Hành động này sẽ xóa tên hiển thị, trường học, ngành học và đưa các mục tiêu học tập về giá trị mặc định ban đầu. Tất cả công việc và điểm đánh giá học tập sẽ được bảo toàn.',
+                  'Hành động này sẽ xóa tên hiển thị, trường học, ngành học và đưa các mục tiêu học tập tuần về giá trị mặc định ban đầu.\n\n• Dữ liệu bị xóa: Thông tin cá nhân, avatar tùy chọn và mục tiêu học tập tuần.\n• Dữ liệu giữ lại: Toàn bộ danh mục môn học, công việc và lịch sử điểm số của bạn.',
               confirmLabel: 'Đặt lại hồ sơ',
               onConfirm: onResetProfile,
             );
@@ -797,24 +879,46 @@ class ProfileScreen extends StatelessWidget {
         ),
         const SizedBox(height: 8),
 
-        // 4. Khôi phục toàn bộ (Xóa trắng toàn bộ ứng dụng)
+        // 3. Khôi phục toàn bộ (Xóa trắng toàn bộ ứng dụng về xuất xưởng)
         InfoCard(
           icon: Icons.delete_forever_outlined,
           iconColor: AppColors.error,
           title: 'Khôi phục toàn bộ ứng dụng',
           subtitle:
-              'Xóa hoàn toàn mọi dữ liệu người dùng tạo (hồ sơ, môn học, công việc, hoạt động) và đưa về trạng thái xuất xưởng.',
+              'Xóa hoàn toàn mọi dữ liệu người dùng tạo (hồ sơ, môn học, công việc, hoạt động) và đưa về trạng thái xuất xưởng ban đầu.',
           onTap: () {
             _showConfirmationDialog(
               context,
               title: 'Xác nhận khôi phục toàn bộ?',
               message:
-                  'CẢNH BÁO: Toàn bộ dữ liệu của bạn bao gồm hồ sơ cá nhân, tất cả môn học, công việc và lịch sử hoạt động sẽ bị xóa sạch hoàn toàn. Hành động này không thể hoàn tác.',
+                  'CẢNH BÁO: Toàn bộ dữ liệu của bạn bao gồm hồ sơ cá nhân, danh mục môn học, công việc và lịch sử hoạt động sẽ bị xóa sạch hoàn toàn. Ứng dụng sẽ trở về trạng thái xuất xưởng ban đầu.\n\nHành động này không thể hoàn tác!',
               confirmLabel: 'Xóa tất cả',
               onConfirm: onResetAllData,
             );
           },
         ),
+
+        // 4. Khôi phục dữ liệu mẫu: Chỉ hiển thị trong debug/testing mode
+        if (showDebugOptions) ...[
+          const SizedBox(height: 8),
+          InfoCard(
+            icon: Icons.refresh_rounded,
+            iconColor: AppColors.primary,
+            title: 'Khôi phục dữ liệu mẫu (Thử nghiệm)',
+            subtitle:
+                'Nạp lại 4 môn học mặc định và 3 nhiệm vụ mẫu ban đầu phục vụ kiểm thử giao diện.',
+            onTap: () {
+              _showConfirmationDialog(
+                context,
+                title: 'Khôi phục dữ liệu mẫu?',
+                message:
+                    'Hành động này sẽ ghi lại các môn học mặc định và công việc mẫu. Thông tin hồ sơ cá nhân của bạn sẽ được giữ nguyên.',
+                confirmLabel: 'Khôi phục mẫu',
+                onConfirm: onResetSampleData,
+              );
+            },
+          ),
+        ],
       ],
     );
   }
@@ -834,12 +938,92 @@ class ProfileScreen extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 10),
-        const InfoCard(
-          icon: Icons.info_outline_rounded,
-          iconColor: AppColors.primary,
-          title: 'ExamPilot phiên bản 1.0 (Giai đoạn 6 - Hoàn thiện UI/UX)',
-          subtitle:
-              'Ứng dụng hỗ trợ sinh viên tự học và quản lý môn học hiệu quả theo tiêu chuẩn UI/UX Pro Max. Dữ liệu chạy hoàn toàn offline và cục bộ trên thiết bị của bạn.',
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: context.surfaceColor,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: context.borderColor),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: context.primaryContainerColor,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Center(
+                      child: Icon(
+                        Icons.school_rounded,
+                        color: AppColors.primary,
+                        size: 26,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'ExamPilot',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: context.textPrimaryColor,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Phiên bản 1.0.0',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: context.textSecondaryColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Ứng dụng lập kế hoạch và đồng hành tự học dành cho sinh viên.',
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.45,
+                  color: context.textSecondaryColor,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Divider(color: context.borderColor, height: 1),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.offline_bolt_outlined,
+                    size: 16,
+                    color: AppColors.primary,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Hoạt động hoàn toàn ngoại tuyến và bảo mật dữ liệu',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: context.textSecondaryColor,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ],
     );

@@ -109,7 +109,12 @@ class TaskRepository {
   Future<List<StudyTask>> getAllTasks() async {
     if (isWebPreview) {
       final sortedList = List<StudyTask>.from(_webTasks);
-      sortedList.sort((a, b) => a.deadline.compareTo(b.deadline));
+      sortedList.sort((a, b) {
+        if (a.deadline == null && b.deadline == null) return 0;
+        if (a.deadline == null) return 1;
+        if (b.deadline == null) return -1;
+        return a.deadline!.compareTo(b.deadline!);
+      });
       return sortedList;
     }
 
@@ -572,18 +577,49 @@ class TaskRepository {
     }
   }
 
-  /// Xóa toàn bộ công việc (phục vụ kiểm thử hoặc dọn dẹp dữ liệu).
+  /// Xóa toàn bộ công việc và lịch sử hoạt động học tập (phục vụ dọn dẹp hoặc đặt lại dữ liệu học tập).
   Future<void> clearAllTasks() async {
     if (isWebPreview) {
       _webTasks.clear();
+      _webActivities.clear();
+      _webActiveDates.clear();
+      WebStreakStorage.clearStudyActivitiesAndDates();
       return;
     }
 
     try {
       final db = await _dbHelper!.database;
       await db.delete(DatabaseHelper.tableTasks);
+      final tableCheck = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='${DatabaseHelper.tableActivities}'",
+      );
+      if (tableCheck.isNotEmpty) {
+        await db.delete(DatabaseHelper.tableActivities);
+      }
     } catch (e) {
       throw Exception('Không thể xóa toàn bộ công việc: $e');
+    }
+  }
+
+  /// Xóa toàn bộ lịch sử hoạt động học tập và chuỗi ngày học (study_activities).
+  Future<void> clearAllActivities() async {
+    if (isWebPreview) {
+      _webActivities.clear();
+      _webActiveDates.clear();
+      WebStreakStorage.clearStudyActivitiesAndDates();
+      return;
+    }
+
+    try {
+      final db = await _dbHelper!.database;
+      final tableCheck = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='${DatabaseHelper.tableActivities}'",
+      );
+      if (tableCheck.isNotEmpty) {
+        await db.delete(DatabaseHelper.tableActivities);
+      }
+    } catch (e) {
+      throw Exception('Không thể xóa toàn bộ hoạt động học tập: $e');
     }
   }
 

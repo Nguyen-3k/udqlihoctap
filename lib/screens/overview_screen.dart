@@ -76,7 +76,9 @@ class OverviewScreen extends StatelessWidget {
     final endOfToday = DateTime(now.year, now.month, now.day, 23, 59, 59, 999);
 
     // 1. Phân loại công việc hôm nay (theo giờ địa phương)
-    final todayTasks = tasks.where((t) => _isSameDay(t.deadline, now)).toList();
+    final todayTasks = tasks
+        .where((t) => t.deadline != null && _isSameDay(t.deadline!, now))
+        .toList();
     final todayTotal = todayTasks.length;
     final todayCompleted = todayTasks.where((t) => t.isCompleted).length;
     final todayRemaining = todayTotal - todayCompleted;
@@ -90,63 +92,50 @@ class OverviewScreen extends StatelessWidget {
             .where(
               (t) =>
                   !t.isCompleted &&
-                  t.deadline.isBefore(startOfToday) &&
-                  !_isSameDay(t.deadline, now),
+                  t.deadline != null &&
+                  t.deadline!.isBefore(startOfToday) &&
+                  !_isSameDay(t.deadline!, now),
             )
             .toList()
-          ..sort((a, b) => a.deadline.compareTo(b.deadline));
+          ..sort((a, b) => a.deadline!.compareTo(b.deadline!));
 
     // 3. Phân loại công việc sắp đến hạn (chưa xong và hạn nộp sau hôm nay)
     final upcomingTasks =
         tasks
-            .where((t) => !t.isCompleted && t.deadline.isAfter(endOfToday))
+            .where(
+              (t) =>
+                  !t.isCompleted &&
+                  t.deadline != null &&
+                  t.deadline!.isAfter(endOfToday),
+            )
             .toList()
-          ..sort((a, b) => a.deadline.compareTo(b.deadline));
+          ..sort((a, b) => a.deadline!.compareTo(b.deadline!));
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      padding: const EdgeInsets.only(left: 16, top: 16, right: 16, bottom: 88),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // A. Lời chào & Ngày hiện tại
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _formatGreeting(now),
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        color: context.textPrimaryColor,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      _formatVietnameseDate(now),
-                      style: TextStyle(
-                        color: context.textSecondaryColor,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
+              Text(
+                _formatGreeting(now),
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: context.textPrimaryColor,
                 ),
               ),
-              FilledButton.icon(
-                onPressed: onAddTask,
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 10,
-                  ),
+              const SizedBox(height: 3),
+              Text(
+                _formatVietnameseDate(now),
+                style: TextStyle(
+                  color: context.textSecondaryColor,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
                 ),
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('Thêm việc'),
               ),
             ],
           ),
@@ -168,18 +157,93 @@ class OverviewScreen extends StatelessWidget {
             todayPercent: todayPercent,
           ),
 
-          const SizedBox(height: 20),
+          // D. Công việc quá hạn (nếu có) – Ưu tiên hiển thị trước công việc hôm nay
+          if (overdueTasks.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                const Icon(
+                  Icons.warning_amber_rounded,
+                  color: AppColors.error,
+                  size: 20,
+                ),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    'Công việc quá hạn (${overdueTasks.length})',
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.error,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: context.isDark
+                    ? const Color(0xFF450A0A)
+                    : const Color(0xFFFEE2E2),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: context.isDark
+                      ? const Color(0xFF991B1B)
+                      : const Color(0xFFFCA5A5),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.info_outline_rounded,
+                    size: 16,
+                    color: AppColors.error,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Có ${overdueTasks.length} bài tập đã quá hạn nộp. Hãy ưu tiên hoàn thành ngay!',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: context.isDark
+                            ? const Color(0xFFFCA5A5)
+                            : AppColors.error,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            ...overdueTasks.map(
+              (task) => TaskCard(
+                task: task,
+                onToggleComplete: (_) => onToggleComplete(task),
+                onTap: () => onTapTask(task),
+                onEdit: () => onEditTask(task),
+                onDelete: () => onDeleteTask(task),
+              ),
+            ),
+          ],
 
-          // D. Công việc cần làm hôm nay
+          // E. Công việc cần làm hôm nay
+          const SizedBox(height: 20),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'Cần làm hôm nay ($todayRemaining)',
-                style: TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.bold,
-                  color: context.textPrimaryColor,
+              Expanded(
+                child: Text(
+                  'Cần làm hôm nay ($todayRemaining)',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                    color: context.textPrimaryColor,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
               if (todayTasks.isNotEmpty)
@@ -249,87 +313,20 @@ class OverviewScreen extends StatelessWidget {
               ),
             ),
 
-          // E. Công việc quá hạn (nếu có)
-          if (overdueTasks.isNotEmpty) ...[
-            const SizedBox(height: 20),
-            Row(
-              children: [
-                const Icon(
-                  Icons.warning_amber_rounded,
-                  color: AppColors.error,
-                  size: 20,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  'Công việc quá hạn (${overdueTasks.length})',
-                  style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.error,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: context.isDark
-                    ? const Color(0xFF450A0A)
-                    : const Color(0xFFFEE2E2),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: context.isDark
-                      ? const Color(0xFF991B1B)
-                      : const Color(0xFFFCA5A5),
-                ),
-              ),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.info_outline_rounded,
-                    size: 16,
-                    color: AppColors.error,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Có ${overdueTasks.length} bài tập đã quá hạn nộp. Hãy ưu tiên hoàn thành ngay!',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: context.isDark
-                            ? const Color(0xFFFCA5A5)
-                            : AppColors.error,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-            ...overdueTasks.map(
-              (task) => TaskCard(
-                task: task,
-                onToggleComplete: (_) => onToggleComplete(task),
-                onTap: () => onTapTask(task),
-                onEdit: () => onEditTask(task),
-                onDelete: () => onDeleteTask(task),
-              ),
-            ),
-          ],
-
           // F. Công việc sắp đến hạn
           const SizedBox(height: 20),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'Sắp đến hạn (${upcomingTasks.length})',
-                style: TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.bold,
-                  color: context.textPrimaryColor,
+              Expanded(
+                child: Text(
+                  'Sắp đến hạn (${upcomingTasks.length})',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                    color: context.textPrimaryColor,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
               TextButton(
@@ -399,6 +396,7 @@ class OverviewScreen extends StatelessWidget {
                   'Xem chi tiết tiến độ hoàn thành, bài tập và phân loại từng môn học.',
               onTap: onGoToSubjects,
             ),
+          const SizedBox(height: 24),
         ],
       ),
     );
@@ -620,23 +618,28 @@ class OverviewScreen extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  const Icon(
-                    Icons.today_rounded,
-                    color: AppColors.primary,
-                    size: 18,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Tiến độ mục tiêu hôm nay',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                      color: context.textPrimaryColor,
+              Expanded(
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.today_rounded,
+                      color: AppColors.primary,
+                      size: 18,
                     ),
-                  ),
-                ],
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Tiến độ mục tiêu hôm nay',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: context.textPrimaryColor,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
               ),
               if (todayTotal > 0)
                 Container(
@@ -686,21 +689,25 @@ class OverviewScreen extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  todayCompleted == todayTotal
-                      ? 'Đã hoàn thành $todayCompleted/$todayTotal việc (100%) 🎉'
-                      : 'Đã hoàn thành $todayCompleted/$todayTotal việc',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: todayCompleted == todayTotal
-                        ? AppColors.statusCompleted
-                        : context.textSecondaryColor,
-                    fontWeight: todayCompleted == todayTotal
-                        ? FontWeight.bold
-                        : FontWeight.normal,
+                Expanded(
+                  child: Text(
+                    todayCompleted == todayTotal
+                        ? 'Đã hoàn thành $todayCompleted/$todayTotal việc (100%) 🎉'
+                        : 'Đã hoàn thành $todayCompleted/$todayTotal việc',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: todayCompleted == todayTotal
+                          ? AppColors.statusCompleted
+                          : context.textSecondaryColor,
+                      fontWeight: todayCompleted == todayTotal
+                          ? FontWeight.bold
+                          : FontWeight.normal,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                if (todayRemaining > 0)
+                if (todayRemaining > 0) ...[
+                  const SizedBox(width: 6),
                   Text(
                     'Còn $todayRemaining việc',
                     style: const TextStyle(
@@ -709,6 +716,7 @@ class OverviewScreen extends StatelessWidget {
                       fontWeight: FontWeight.w600,
                     ),
                   ),
+                ],
               ],
             ),
           ],

@@ -207,6 +207,82 @@ class TaskCard extends StatelessWidget {
                                           ),
                                         ),
 
+                                        // Badge Quá hạn hoặc Sắp đến hạn
+                                        if (task.isOverdue)
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 3,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: AppColors.priorityHighBg,
+                                              borderRadius:
+                                                  BorderRadius.circular(6),
+                                              border: Border.all(
+                                                color: AppColors
+                                                    .priorityHighBorder,
+                                                width: 0.8,
+                                              ),
+                                            ),
+                                            child: const Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  Icons.warning_amber_rounded,
+                                                  size: 13,
+                                                  color: AppColors.error,
+                                                ),
+                                                SizedBox(width: 4),
+                                                Text(
+                                                  'Quá hạn',
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    color: AppColors.error,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          )
+                                        else if (task.isDueSoon)
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 3,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: AppColors.priorityMediumBg,
+                                              borderRadius:
+                                                  BorderRadius.circular(6),
+                                              border: Border.all(
+                                                color: AppColors
+                                                    .priorityMediumBorder,
+                                                width: 0.8,
+                                              ),
+                                            ),
+                                            child: const Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  Icons.schedule_rounded,
+                                                  size: 13,
+                                                  color:
+                                                      AppColors.priorityMedium,
+                                                ),
+                                                SizedBox(width: 4),
+                                                Text(
+                                                  'Sắp đến hạn',
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    color: AppColors
+                                                        .priorityMedium,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+
                                         // Badge Trạng thái Đang làm
                                         if (task.status ==
                                             TaskStatus.inProgress)
@@ -403,54 +479,84 @@ class TaskCard extends StatelessWidget {
                         const SizedBox(height: 8),
 
                         // Thông tin chân thẻ: Hạn chót, thời lượng, ghi chú
-                        Row(
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 4,
+                          crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
-                            const Icon(
-                              Icons.access_time_rounded,
-                              size: 14,
-                              color: AppColors.textSecondary,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              'Hạn: ${_formatDate(task.deadline)}',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: AppColors.textSecondary,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            const SizedBox(width: 14),
-                            const Icon(
-                              Icons.timelapse_rounded,
-                              size: 14,
-                              color: AppColors.textSecondary,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              '${task.estimatedMinutes} phút',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: AppColors.textSecondary,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            if (task.notes.trim().isNotEmpty) ...[
-                              const Spacer(),
-                              const Icon(
-                                Icons.note_alt_outlined,
-                                size: 14,
-                                color: AppColors.primary,
-                              ),
-                              const SizedBox(width: 4),
-                              const Text(
-                                'Có ghi chú',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: AppColors.primary,
-                                  fontWeight: FontWeight.w600,
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  task.isOverdue
+                                      ? Icons.warning_amber_rounded
+                                      : Icons.access_time_rounded,
+                                  size: 14,
+                                  color: task.isOverdue
+                                      ? AppColors.error
+                                      : (task.isDueSoon
+                                            ? AppColors.priorityMedium
+                                            : AppColors.textSecondary),
                                 ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  task.deadline != null
+                                      ? 'Hạn: ${_formatDate(task.deadline!)}'
+                                      : 'Không có hạn chót',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: task.isOverdue
+                                        ? AppColors.error
+                                        : (task.isDueSoon
+                                              ? AppColors.priorityMedium
+                                              : AppColors.textSecondary),
+                                    fontWeight:
+                                        (task.isOverdue || task.isDueSoon)
+                                        ? FontWeight.w600
+                                        : FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.timelapse_rounded,
+                                  size: 14,
+                                  color: AppColors.textSecondary,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '${task.estimatedMinutes} phút',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.textSecondary,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (task.notes.trim().isNotEmpty)
+                              const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.note_alt_outlined,
+                                    size: 14,
+                                    color: AppColors.primary,
+                                  ),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'Có ghi chú',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: AppColors.primary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ],
                           ],
                         ),
                       ],

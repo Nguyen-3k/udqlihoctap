@@ -5,12 +5,13 @@ import '../models/task_status.dart';
 import '../theme/app_colors.dart';
 import '../widgets/task_card.dart';
 
-/// Các tùy chọn sắp xếp danh sách công việc trong Kế hoạch học tập.
+/// Các tùy chọn sắp xếp danh sách công việc trong Kế hoạch học tập (G8.2).
 enum TaskSortOption {
   deadlineNearest('Hạn chót gần nhất', Icons.access_time_rounded),
+  priorityHighToLow('Ưu tiên cao nhất', Icons.flag_rounded),
+  status('Trạng thái công việc', Icons.task_alt_rounded),
   deadlineFurthest('Hạn chót xa nhất', Icons.history_toggle_off_rounded),
-  priorityHighToLow('Ưu tiên cao \u2192 thấp', Icons.arrow_downward_rounded),
-  priorityLowToHigh('Ưu tiên thấp \u2192 cao', Icons.arrow_upward_rounded);
+  priorityLowToHigh('Ưu tiên thấp nhất', Icons.flag_outlined);
 
   final String label;
   final IconData icon;
@@ -76,13 +77,16 @@ class _PlanScreenState extends State<PlanScreen> {
   Widget build(BuildContext context) {
     final query = _searchQuery.trim().toLowerCase();
 
-    // 1. Chuẩn hóa danh sách môn học phục vụ bộ lọc môn
+    // 1. Chuẩn hóa danh sách môn học phục vụ bộ lọc môn và tra cứu tên môn
     final availableSubjects = <_SubjectFilterItem>[];
+    final subjectNameMap = <String, String>{};
+
     if (widget.subjects != null && widget.subjects!.isNotEmpty) {
       for (final s in widget.subjects!) {
         availableSubjects.add(
           _SubjectFilterItem(id: s.id, name: s.name, color: s.color),
         );
+        subjectNameMap[s.id] = s.name;
       }
     } else {
       // Fallback từ các task hiện tại nếu không truyền danh sách subjects
@@ -98,16 +102,29 @@ class _PlanScreenState extends State<PlanScreen> {
             ),
           );
         }
+        subjectNameMap[t.subjectId] = t.subject;
       }
     }
 
     // 2. Lọc danh sách công việc kết hợp tìm kiếm + trạng thái + môn học
     final filteredTasks = widget.tasks.where((task) {
-      // Điều kiện tìm kiếm theo tên công việc (không phân biệt hoa thường)
+      // Điều kiện tìm kiếm không phân biệt hoa thường theo: tên công việc, mô tả/ghi chú, tên môn học
       if (query.isNotEmpty) {
-        final titleMatch = task.title.toLowerCase().contains(query);
-        final notesMatch = task.notes.toLowerCase().contains(query);
-        if (!titleMatch && !notesMatch) return false;
+        final title = task.title.toLowerCase();
+        final notes = task.notes.toLowerCase();
+        final reviewNotes = (task.reviewNotes ?? '').toLowerCase();
+
+        final subjectFromTask = task.subject.toLowerCase();
+        final mappedSubjectName = (subjectNameMap[task.subjectId] ?? '')
+            .toLowerCase();
+
+        final titleMatch = title.contains(query);
+        final notesMatch = notes.contains(query) || reviewNotes.contains(query);
+        final subjectMatch =
+            subjectFromTask.contains(query) ||
+            mappedSubjectName.contains(query);
+
+        if (!titleMatch && !notesMatch && !subjectMatch) return false;
       }
 
       // Điều kiện trạng thái
@@ -126,22 +143,74 @@ class _PlanScreenState extends State<PlanScreen> {
       return true;
     }).toList();
 
-    // 3. Sắp xếp danh sách công việc sau khi lọc
+    // Hàm phụ trợ so sánh hạn chót có xử lý null nhất quán (công việc không hạn chót xếp sau)
+    int compareDeadlines(DateTime? a, DateTime? b, {bool ascending = true}) {
+      if (a == null && b == null) return 0;
+      if (a == null) return 1;
+      if (b == null) return -1;
+      return ascending ? a.compareTo(b) : b.compareTo(a);
+    }
+
+    // 3. Sắp xếp danh sách công việc sau khi lọc (Deterministic & Stable Sort)
     filteredTasks.sort((a, b) {
+      int comparison = 0;
       switch (_sortOption) {
         case TaskSortOption.deadlineNearest:
-          return a.deadline.compareTo(b.deadline);
+          comparison = compareDeadlines(
+            a.deadline,
+            b.deadline,
+            ascending: true,
+          );
+          break;
         case TaskSortOption.deadlineFurthest:
-          return b.deadline.compareTo(a.deadline);
+          comparison = compareDeadlines(
+            a.deadline,
+            b.deadline,
+            ascending: false,
+          );
+          break;
         case TaskSortOption.priorityHighToLow:
-          final priorityCompare = b.priority.index.compareTo(a.priority.index);
-          if (priorityCompare != 0) return priorityCompare;
-          return a.deadline.compareTo(b.deadline);
+          comparison = b.priority.index.compareTo(a.priority.index);
+          if (comparison == 0) {
+            comparison = compareDeadlines(
+              a.deadline,
+              b.deadline,
+              ascending: true,
+            );
+          }
+          break;
         case TaskSortOption.priorityLowToHigh:
-          final priorityCompare = a.priority.index.compareTo(b.priority.index);
-          if (priorityCompare != 0) return priorityCompare;
-          return a.deadline.compareTo(b.deadline);
+          comparison = a.priority.index.compareTo(b.priority.index);
+          if (comparison == 0) {
+            comparison = compareDeadlines(
+              a.deadline,
+              b.deadline,
+              ascending: true,
+            );
+          }
+          break;
+        case TaskSortOption.status:
+          // Sắp xếp trạng thái: Chưa làm (todo) -> Đang làm (inProgress) -> Hoàn thành (completed)
+          comparison = a.status.index.compareTo(b.status.index);
+          if (comparison == 0) {
+            // Khi cùng trạng thái, ưu tiên cao hơn lên trước
+            comparison = b.priority.index.compareTo(a.priority.index);
+            if (comparison == 0) {
+              comparison = compareDeadlines(
+                a.deadline,
+                b.deadline,
+                ascending: true,
+              );
+            }
+          }
+          break;
       }
+
+      // Tie-breaker ổn định cuối cùng: so sánh theo tiêu đề rồi đến id
+      if (comparison != 0) return comparison;
+      final titleComp = a.title.compareTo(b.title);
+      if (titleComp != 0) return titleComp;
+      return a.id.compareTo(b.id);
     });
 
     final hasActiveFilter =
@@ -150,7 +219,12 @@ class _PlanScreenState extends State<PlanScreen> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        padding: const EdgeInsets.only(
+          left: 16,
+          top: 16,
+          right: 16,
+          bottom: 88,
+        ),
         children: [
           // Tiêu đề trang & Menu sắp xếp
           Row(
@@ -182,6 +256,7 @@ class _PlanScreenState extends State<PlanScreen> {
                   ],
                 ),
               ),
+              const SizedBox(width: 8),
 
               // Nút Menu sắp xếp
               PopupMenuButton<TaskSortOption>(
@@ -250,12 +325,17 @@ class _PlanScreenState extends State<PlanScreen> {
                         color: AppColors.primary,
                       ),
                       const SizedBox(width: 6),
-                      Text(
-                        _sortOption.label,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.primary,
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 130),
+                        child: Text(
+                          _sortOption.label,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.primary,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                       const SizedBox(width: 4),
@@ -283,7 +363,7 @@ class _PlanScreenState extends State<PlanScreen> {
             },
             style: TextStyle(fontSize: 14, color: context.textPrimaryColor),
             decoration: InputDecoration(
-              hintText: 'Tìm kiếm theo tên công việc, ghi chú...',
+              hintText: 'Tìm theo tên việc, môn học, ghi chú...',
               hintStyle: const TextStyle(
                 color: AppColors.textMuted,
                 fontSize: 13,
@@ -412,7 +492,7 @@ class _PlanScreenState extends State<PlanScreen> {
               hasActiveFilter: hasActiveFilter,
               isQueryEmpty: query.isEmpty,
             )
-          else
+          else ...[
             ...filteredTasks.map(
               (task) => TaskCard(
                 task: task,
@@ -422,6 +502,8 @@ class _PlanScreenState extends State<PlanScreen> {
                 onDelete: () => widget.onDeleteTask(task),
               ),
             ),
+            const SizedBox(height: 20),
+          ],
         ],
       ),
     );
