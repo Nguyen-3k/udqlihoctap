@@ -11,6 +11,7 @@ class TaskDetailSheet extends StatelessWidget {
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback? onAssess;
+  final VoidCallback? onStartTimer;
 
   const TaskDetailSheet({
     super.key,
@@ -19,6 +20,7 @@ class TaskDetailSheet extends StatelessWidget {
     required this.onEdit,
     required this.onDelete,
     this.onAssess,
+    this.onStartTimer,
   });
 
   String _formatDateTime(DateTime dt) {
@@ -417,7 +419,24 @@ class TaskDetailSheet extends StatelessWidget {
               ),
             ),
 
-            const SizedBox(height: 22),
+            const SizedBox(height: 18),
+
+            if (onStartTimer != null) ...[
+              SizedBox(
+                width: double.infinity,
+                height: 46,
+                child: FilledButton.tonalIcon(
+                  key: const ValueKey('task_detail_start_timer_button'),
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    onStartTimer!();
+                  },
+                  icon: const Icon(Icons.timer_outlined, size: 19),
+                  label: const Text('Học công việc này với Study Timer'),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
 
             // Thanh nút thao tác
             Row(

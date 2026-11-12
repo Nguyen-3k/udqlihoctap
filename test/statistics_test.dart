@@ -561,8 +561,12 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        // Bấm vào cột thứ 4 (T5) - ngày chưa có hoạt động
-        await tester.tap(find.text('T5'));
+        // Chọn một ngày khác hôm nay trong tuần để chắc chắn chưa có hoạt động
+        const weekdayLabels = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+        final emptyDayLabel = weekdayLabels.firstWhere(
+          (label) => label != weekdayLabels[now.weekday - 1],
+        );
+        await tester.tap(find.text(emptyDayLabel));
         await tester.pumpAndSettle();
 
         // Thẻ chi tiết hiển thị cập nhật thông tin

@@ -19,6 +19,7 @@ class SubjectsScreen extends StatelessWidget {
   final ValueChanged<StudyTask> onEditTask;
   final ValueChanged<StudyTask> onDeleteTask;
   final void Function(Subject subject) onAddTaskForSubject;
+  final void Function(Subject subject)? onStartTimerForSubject;
 
   const SubjectsScreen({
     super.key,
@@ -32,6 +33,7 @@ class SubjectsScreen extends StatelessWidget {
     required this.onEditTask,
     required this.onDeleteTask,
     required this.onAddTaskForSubject,
+    this.onStartTimerForSubject,
   });
 
   // Danh mục màu đại diện gợi ý
@@ -447,6 +449,9 @@ class SubjectsScreen extends StatelessWidget {
           onEditTask: onEditTask,
           onDeleteTask: onDeleteTask,
           onAddTaskForThisSubject: () => onAddTaskForSubject(subject),
+          onStartTimerForThisSubject: onStartTimerForSubject == null
+              ? null
+              : () => onStartTimerForSubject!(subject),
           onEditSubject: () =>
               _showSubjectFormDialog(context, initialSubject: subject),
           onUpdateSubject: onUpdateSubject,
@@ -661,6 +666,8 @@ class SubjectsScreen extends StatelessWidget {
                               onSelected: (val) {
                                 if (val == 'detail') {
                                   _openSubjectDetail(context, subject);
+                                } else if (val == 'timer') {
+                                  onStartTimerForSubject?.call(subject);
                                 } else if (val == 'edit') {
                                   _showSubjectFormDialog(
                                     context,
@@ -681,6 +688,17 @@ class SubjectsScreen extends StatelessWidget {
                                     ],
                                   ),
                                 ),
+                                if (onStartTimerForSubject != null)
+                                  const PopupMenuItem(
+                                    value: 'timer',
+                                    child: Row(
+                                      children: [
+                                        Icon(Icons.timer_outlined, size: 18),
+                                        SizedBox(width: 8),
+                                        Text('Học với Study Timer'),
+                                      ],
+                                    ),
+                                  ),
                                 const PopupMenuItem(
                                   value: 'edit',
                                   child: Row(

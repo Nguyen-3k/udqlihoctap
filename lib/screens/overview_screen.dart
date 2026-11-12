@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
+import '../models/study_session.dart';
 import '../models/study_streak.dart';
 import '../models/study_task.dart';
+import '../models/user_profile.dart';
+import '../services/study_timer_engine.dart';
 import '../theme/app_colors.dart';
 import '../widgets/info_card.dart';
+import '../widgets/overview_timer_card.dart';
 import '../widgets/task_card.dart';
+import '../widgets/weekly_goal_summary_card.dart';
 
 /// Màn hình Tổng quan (Dashboard) nâng cấp toàn diện trong Giai đoạn 3:
 /// - Lời chào & Ngày hiện tại chuẩn tiếng Việt.
@@ -16,6 +21,11 @@ import '../widgets/task_card.dart';
 class OverviewScreen extends StatelessWidget {
   final List<StudyTask> tasks;
   final StudyStreak studyStreak;
+  final int legacyActiveDatesCount;
+  final UserProfile userProfile;
+  final List<StudySession> sessions;
+  final StudyTimerEngine? timerEngine;
+  final VoidCallback? onOpenTimer;
   final ValueChanged<StudyTask> onToggleComplete;
   final ValueChanged<StudyTask> onTapTask;
   final ValueChanged<StudyTask> onEditTask;
@@ -23,11 +33,17 @@ class OverviewScreen extends StatelessWidget {
   final VoidCallback onAddTask;
   final VoidCallback onGoToPlan;
   final VoidCallback? onGoToSubjects;
+  final VoidCallback? onGoToProfile;
 
   const OverviewScreen({
     super.key,
     required this.tasks,
     required this.studyStreak,
+    this.legacyActiveDatesCount = 0,
+    this.userProfile = const UserProfile(),
+    this.sessions = const [],
+    this.timerEngine,
+    this.onOpenTimer,
     required this.onToggleComplete,
     required this.onTapTask,
     required this.onEditTask,
@@ -35,6 +51,7 @@ class OverviewScreen extends StatelessWidget {
     required this.onAddTask,
     required this.onGoToPlan,
     this.onGoToSubjects,
+    this.onGoToProfile,
   });
 
   static bool _isSameDay(DateTime a, DateTime b) {
@@ -144,6 +161,21 @@ class OverviewScreen extends StatelessWidget {
 
           // B. Thẻ Study Streak – Chuỗi ngày học liên tiếp
           _buildStudyStreakCard(now),
+
+          const SizedBox(height: 14),
+
+          // B1. Điểm truy cập nhanh Study Timer (Phase 3)
+          OverviewTimerCard(timerEngine: timerEngine, onOpenTimer: onOpenTimer),
+
+          const SizedBox(height: 14),
+
+          // B2. Tóm tắt Mục tiêu học tuần này (theo dữ liệu Timer G8.8 Phase 1)
+          WeeklyGoalSummaryCard(
+            profile: userProfile,
+            sessions: sessions,
+            now: now,
+            onTapConfigure: onGoToProfile,
+          ),
 
           const SizedBox(height: 16),
 
@@ -510,19 +542,31 @@ class OverviewScreen extends StatelessWidget {
 
           const SizedBox(height: 12),
 
-          // Lời nhắc nhở động viên
+          // Lời nhắc nhở động viên (theo quy tắc Study Streak >= 15 phút Đồng hồ)
           Text(
             hasTodayActivity
-                ? 'Tuyệt vời! Bạn đã hoàn thành bài học hôm nay để tiếp tục chuỗi 🔥'
+                ? 'Tuyệt vời! Bạn đã học ít nhất 15 phút bằng Đồng hồ hôm nay để tiếp tục chuỗi 🔥'
                 : (streakDays > 0
-                      ? 'Hoàn thành 1 bài học hôm nay để nâng chuỗi lên ${streakDays + 1} ngày!'
-                      : 'Bắt đầu chuỗi học tập mới hôm nay bằng cách hoàn thành 1 nhiệm vụ!'),
+                      ? 'Học ít nhất 15 phút bằng Đồng hồ hôm nay để nâng chuỗi lên ${streakDays + 1} ngày!'
+                      : 'Bắt đầu chuỗi học mới bằng cách hoàn thành 15 phút học với Đồng hồ!'),
             style: const TextStyle(
               color: Colors.white,
               fontSize: 13,
               height: 1.35,
             ),
           ),
+
+          if (legacyActiveDatesCount > 0) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Lịch sử $legacyActiveDatesCount ngày theo quy tắc cũ vẫn được bảo toàn nguyên vẹn trong Thống kê.',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.85),
+                fontSize: 11,
+                height: 1.3,
+              ),
+            ),
+          ],
 
           const SizedBox(height: 16),
           const Divider(height: 1, color: Colors.white24),

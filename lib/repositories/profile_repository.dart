@@ -16,22 +16,11 @@ class ProfileRepository {
     : _dbHelper = dbHelper ?? DatabaseHelper.instance,
       isWebPreview = useWebPreview || kIsWeb;
 
-  /// Đảm bảo bảng `user_profile` đã tồn tại trong SQLite (kể cả trong các mock in-memory database test).
+  /// Đảm bảo bảng `user_profile` đã tồn tại và có đủ cột Schema v7 trong SQLite
+  /// (kể cả trong các mock in-memory database test khởi tạo từ Schema v6).
   Future<void> _ensureTableExists(Database db) async {
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS ${DatabaseHelper.tableProfile} (
-        ${DatabaseHelper.columnProfileId} TEXT PRIMARY KEY,
-        ${DatabaseHelper.columnProfileName} TEXT NOT NULL DEFAULT '',
-        ${DatabaseHelper.columnProfileUniversity} TEXT NOT NULL DEFAULT '',
-        ${DatabaseHelper.columnProfileMajor} TEXT NOT NULL DEFAULT '',
-        ${DatabaseHelper.columnProfileAcademicYear} TEXT NOT NULL DEFAULT '',
-        ${DatabaseHelper.columnProfileAvatarId} TEXT NOT NULL DEFAULT 'school',
-        ${DatabaseHelper.columnProfileTargetHours} REAL NOT NULL DEFAULT 10.0,
-        ${DatabaseHelper.columnProfileTargetTasks} INTEGER NOT NULL DEFAULT 5,
-        ${DatabaseHelper.columnProfileThemeMode} TEXT NOT NULL DEFAULT 'system',
-        ${DatabaseHelper.columnProfileReminderEnabled} INTEGER NOT NULL DEFAULT 0
-      )
-    ''');
+    await DatabaseHelper.createProfileTable(db);
+    await DatabaseHelper.upgradeProfileColumnsToV7(db);
   }
 
   /// Đọc hồ sơ cá nhân hiện tại.
@@ -70,8 +59,9 @@ class ProfileRepository {
     return _cachedProfile!;
   }
 
-  /// Lưu thông tin hồ sơ cá nhân và cài đặt.
+  /// Lưu thông tin hồ sơ cá nhân và cài đặt (có kiểm tra tính hợp lệ trước khi ghi).
   Future<void> saveProfile(UserProfile profile) async {
+    profile.validate();
     _cachedProfile = profile;
 
     if (isWebPreview) {
@@ -93,6 +83,42 @@ class ProfileRepository {
       debugPrint('Lỗi lưu UserProfile vào SQLite: $e');
       rethrow;
     }
+  }
+
+  /// Cập nhật cấu hình âm thanh, thông báo, chu kỳ nghỉ và giới hạn học/ngày (Schema v7).
+  Future<UserProfile> updateStudyPreferences({
+    String? alarmSoundId,
+    String? breakSoundId,
+    int? preReminderMinutes,
+    String? breakPresetId,
+    int? customStudyMinutes,
+    int? customBreakMinutes,
+    bool? autoBreakReminder,
+    bool? notifyPreStudy,
+    bool? notifyAlarmOnTime,
+    bool? notifySessionStart,
+    bool? notifyBreakStart,
+    bool? notifyBreakEnd,
+    int? dailyStudyLimitMinutes,
+  }) async {
+    final current = await getProfile();
+    final updated = current.copyWith(
+      alarmSoundId: alarmSoundId,
+      breakSoundId: breakSoundId,
+      preReminderMinutes: preReminderMinutes,
+      breakPresetId: breakPresetId,
+      customStudyMinutes: customStudyMinutes,
+      customBreakMinutes: customBreakMinutes,
+      autoBreakReminder: autoBreakReminder,
+      notifyPreStudy: notifyPreStudy,
+      notifyAlarmOnTime: notifyAlarmOnTime,
+      notifySessionStart: notifySessionStart,
+      notifyBreakStart: notifyBreakStart,
+      notifyBreakEnd: notifyBreakEnd,
+      dailyStudyLimitMinutes: dailyStudyLimitMinutes,
+    );
+    await saveProfile(updated);
+    return updated;
   }
 
   /// Cập nhật mục tiêu học tập hàng tuần (giờ và số công việc).

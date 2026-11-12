@@ -382,7 +382,7 @@ void main() {
         expect(find.text('Thiết lập hồ sơ ngay'), findsOneWidget);
         expect(find.text('Mục tiêu học tập tuần này'), findsOneWidget);
         expect(find.text('Cài đặt ứng dụng'), findsOneWidget);
-        expect(find.text('Nhắc nhở học tập hàng ngày'), findsOneWidget);
+        expect(find.text('Bật thông báo'), findsOneWidget);
 
         // Bấm nút thiết lập hồ sơ ngay
         await tester.tap(
@@ -892,7 +892,7 @@ void main() {
     });
 
     testWidgets(
-      'G8.5-9: Nhắc nhở học tập giải thích rõ ràng, tránh hiểu lầm push notification tự động',
+      'G8.5-9: Thông báo & Báo thức hiển thị đúng trạng thái thực tế và giới hạn nguồn lịch',
       (tester) async {
         tester.view.physicalSize = const Size(800, 2200);
         tester.view.devicePixelRatio = 1.0;
@@ -918,13 +918,8 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        expect(find.text('Nhắc nhở học tập hàng ngày'), findsOneWidget);
-        expect(
-          find.text(
-            'Ghi nhận nhu cầu nhắc nhở học tập. Tính năng thông báo đẩy tự động trên thiết bị sẽ được bổ sung trong bản cập nhật sau.',
-          ),
-          findsOneWidget,
-        );
+        expect(find.text('Bật thông báo'), findsOneWidget);
+        expect(find.textContaining('ScheduledSession'), findsOneWidget);
       },
     );
 

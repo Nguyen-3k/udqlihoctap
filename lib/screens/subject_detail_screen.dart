@@ -22,6 +22,7 @@ class SubjectDetailScreen extends StatefulWidget {
   final ValueChanged<StudyTask> onEditTask;
   final ValueChanged<StudyTask> onDeleteTask;
   final VoidCallback onAddTaskForThisSubject;
+  final VoidCallback? onStartTimerForThisSubject;
   final VoidCallback onEditSubject;
   final ValueChanged<Subject>? onUpdateSubject;
   final VoidCallback onDeleteSubject;
@@ -36,6 +37,7 @@ class SubjectDetailScreen extends StatefulWidget {
     required this.onEditTask,
     required this.onDeleteTask,
     required this.onAddTaskForThisSubject,
+    this.onStartTimerForThisSubject,
     required this.onEditSubject,
     this.onUpdateSubject,
     required this.onDeleteSubject,
@@ -189,6 +191,24 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
           ),
 
           const SizedBox(height: 14),
+
+          if (widget.onStartTimerForThisSubject != null) ...[
+            SizedBox(
+              width: double.infinity,
+              height: 46,
+              child: FilledButton.tonalIcon(
+                key: const ValueKey('subject_detail_start_timer_button'),
+                onPressed: widget.onStartTimerForThisSubject,
+                icon: const Icon(Icons.timer_rounded, size: 20),
+                label: Text(
+                  'Học môn ${currentSub.name} với Study Timer',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+          ],
 
           // 2. Thẻ tiến độ học tập môn này (Tính từ dữ liệu thực tế)
           Container(

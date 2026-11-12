@@ -947,12 +947,18 @@ void main() {
           ),
         );
 
-        // Tap checkbox
-        await tester.tap(find.byType(Checkbox));
+        // Tap checkbox (cuộn tới widget vì WeeklyGoalSummaryCard mới đẩy danh sách xuống dưới màn hình 600px)
+        final checkboxFinder = find.byType(Checkbox);
+        await tester.ensureVisible(checkboxFinder);
+        await tester.pumpAndSettle();
+        await tester.tap(checkboxFinder);
         expect(toggled, isTrue);
 
         // Tap task card
-        await tester.tap(find.text('Ôn tập Mạng máy tính'));
+        final taskTitleFinder = find.text('Ôn tập Mạng máy tính');
+        await tester.ensureVisible(taskTitleFinder);
+        await tester.pumpAndSettle();
+        await tester.tap(taskTitleFinder);
         expect(tapped, isTrue);
       },
     );

@@ -428,7 +428,8 @@ class BackupService {
           );
         }
 
-        // Ghi hồ sơ cá nhân và cài đặt
+        // Bảo đảm bảng user_profile có đủ cột v7 và ghi hồ sơ cá nhân
+        await DatabaseHelper.upgradeProfileColumnsToV7(txn);
         await txn.insert(
           DatabaseHelper.tableProfile,
           profile.toMap(),

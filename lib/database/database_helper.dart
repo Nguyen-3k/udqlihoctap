@@ -13,13 +13,15 @@ import '../models/understanding_level.dart';
 /// Chặn cuộc gọi sqflite trên Web để giữ an toàn cho trình duyệt.
 class DatabaseHelper {
   static const _databaseName = 'exampilot.db';
-  static const _databaseVersion =
-      6; // Nâng version lên 6: Hồ sơ cá nhân, Mục tiêu & Cài đặt (Giai đoạn 5)
+  static const int databaseVersion =
+      7; // Nâng version lên 7: study_sessions & cài đặt học tập (G8.8 Phase 1)
+  static const _databaseVersion = databaseVersion;
 
   static const tableTasks = 'study_tasks';
   static const tableSubjects = 'subjects';
   static const tableActivities = 'study_activities';
   static const tableProfile = 'user_profile';
+  static const tableSessions = 'study_sessions';
 
   // Định nghĩa tên các cột trong bảng study_tasks
   static const columnId = 'id';
@@ -50,7 +52,7 @@ class DatabaseHelper {
   static const columnActivityActualMinutes = 'actual_minutes';
   static const columnActivitySubjectId = 'subject_id';
 
-  // Định nghĩa tên các cột trong bảng user_profile (Hồ sơ & Cài đặt G5)
+  // Định nghĩa tên các cột trong bảng user_profile (Hồ sơ & Cài đặt G5 + Mở rộng G8.8 Phase 1)
   static const columnProfileId = 'id';
   static const columnProfileName = 'name';
   static const columnProfileUniversity = 'university';
@@ -61,6 +63,59 @@ class DatabaseHelper {
   static const columnProfileTargetTasks = 'weekly_target_tasks';
   static const columnProfileThemeMode = 'theme_mode';
   static const columnProfileReminderEnabled = 'reminder_enabled';
+  static const columnProfileAlarmSoundId = 'alarm_sound_id';
+  static const columnProfileBreakSoundId = 'break_sound_id';
+  static const columnProfilePreReminderMinutes = 'pre_reminder_minutes';
+  static const columnProfileBreakPresetId = 'break_preset_id';
+  static const columnProfileCustomStudyMinutes = 'custom_study_minutes';
+  static const columnProfileCustomBreakMinutes = 'custom_break_minutes';
+  static const columnProfileAutoBreakReminder = 'auto_break_reminder';
+  static const columnProfileNotifyPreStudy = 'notify_pre_study';
+  static const columnProfileNotifyAlarmOnTime = 'notify_alarm_on_time';
+  static const columnProfileNotifySessionStart = 'notify_session_start';
+  static const columnProfileNotifyBreakStart = 'notify_break_start';
+  static const columnProfileNotifyBreakEnd = 'notify_break_end';
+  static const columnProfileDailyStudyLimitMinutes =
+      'daily_study_limit_minutes';
+
+  // Định nghĩa tên các cột trong bảng study_sessions (Schema v7 - G8.8 Phase 1)
+  static const columnSessionId = 'id';
+  static const columnSessionSubjectId = 'subject_id';
+  static const columnSessionSubjectNameSnapshot = 'subject_name_snapshot';
+  static const columnSessionSubjectColorSnapshot = 'subject_color_snapshot';
+  static const columnSessionTaskId = 'task_id';
+  static const columnSessionTaskTitleSnapshot = 'task_title_snapshot';
+  static const columnSessionScheduledId = 'scheduled_session_id';
+  static const columnSessionStartedAt = 'started_at';
+  static const columnSessionEndedAt = 'ended_at';
+  static const columnSessionLastHeartbeatAt = 'last_heartbeat_at';
+  static const columnSessionLastStateChangedAt = 'last_state_changed_at';
+  static const columnSessionStudyDate = 'study_date';
+  static const columnSessionVerifiedStudySeconds = 'verified_study_seconds';
+  static const columnSessionAccumulatedBreakSeconds =
+      'accumulated_break_seconds';
+  static const columnSessionStatus = 'status';
+  static const columnSessionMode = 'session_mode';
+  static const columnSessionPlannedStudyMinutes = 'planned_study_minutes';
+  static const columnSessionPlannedBreakMinutes = 'planned_break_minutes';
+  static const columnSessionNotes = 'notes';
+
+  /// Danh sách cột mở rộng v7 của bảng `user_profile` kèm kiểu và giá trị mặc định.
+  static const Map<String, String> profileV7ColumnDefs = {
+    columnProfileAlarmSoundId: "TEXT NOT NULL DEFAULT 'alarm_dawn'",
+    columnProfileBreakSoundId: "TEXT NOT NULL DEFAULT 'break_windchime'",
+    columnProfilePreReminderMinutes: 'INTEGER NOT NULL DEFAULT 10',
+    columnProfileBreakPresetId: "TEXT NOT NULL DEFAULT 'pomodoro_25_5'",
+    columnProfileCustomStudyMinutes: 'INTEGER NOT NULL DEFAULT 25',
+    columnProfileCustomBreakMinutes: 'INTEGER NOT NULL DEFAULT 5',
+    columnProfileAutoBreakReminder: 'INTEGER NOT NULL DEFAULT 1',
+    columnProfileNotifyPreStudy: 'INTEGER NOT NULL DEFAULT 1',
+    columnProfileNotifyAlarmOnTime: 'INTEGER NOT NULL DEFAULT 1',
+    columnProfileNotifySessionStart: 'INTEGER NOT NULL DEFAULT 1',
+    columnProfileNotifyBreakStart: 'INTEGER NOT NULL DEFAULT 1',
+    columnProfileNotifyBreakEnd: 'INTEGER NOT NULL DEFAULT 1',
+    columnProfileDailyStudyLimitMinutes: 'INTEGER NOT NULL DEFAULT 240',
+  };
 
   DatabaseHelper._privateConstructor();
   static final DatabaseHelper instance = DatabaseHelper._privateConstructor();
@@ -95,9 +150,117 @@ class DatabaseHelper {
     return await openDatabase(
       path,
       version: _databaseVersion,
+      onConfigure: configureDatabase,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
+  }
+
+  /// Kích hoạt kiểm soát khóa ngoại trong SQLite ngay khi mở kết nối.
+  static Future<void> configureDatabase(Database db) async {
+    await db.execute('PRAGMA foreign_keys = ON');
+  }
+
+  /// Tạo bảng `user_profile` với toàn bộ cột chuẩn của Schema v7.
+  static Future<void> createProfileTable(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $tableProfile (
+        $columnProfileId TEXT PRIMARY KEY,
+        $columnProfileName TEXT NOT NULL DEFAULT '',
+        $columnProfileUniversity TEXT NOT NULL DEFAULT '',
+        $columnProfileMajor TEXT NOT NULL DEFAULT '',
+        $columnProfileAcademicYear TEXT NOT NULL DEFAULT '',
+        $columnProfileAvatarId TEXT NOT NULL DEFAULT 'school',
+        $columnProfileTargetHours REAL NOT NULL DEFAULT 10.0,
+        $columnProfileTargetTasks INTEGER NOT NULL DEFAULT 5,
+        $columnProfileThemeMode TEXT NOT NULL DEFAULT 'system',
+        $columnProfileReminderEnabled INTEGER NOT NULL DEFAULT 0,
+        $columnProfileAlarmSoundId TEXT NOT NULL DEFAULT 'alarm_dawn',
+        $columnProfileBreakSoundId TEXT NOT NULL DEFAULT 'break_windchime',
+        $columnProfilePreReminderMinutes INTEGER NOT NULL DEFAULT 10,
+        $columnProfileBreakPresetId TEXT NOT NULL DEFAULT 'pomodoro_25_5',
+        $columnProfileCustomStudyMinutes INTEGER NOT NULL DEFAULT 25,
+        $columnProfileCustomBreakMinutes INTEGER NOT NULL DEFAULT 5,
+        $columnProfileAutoBreakReminder INTEGER NOT NULL DEFAULT 1,
+        $columnProfileNotifyPreStudy INTEGER NOT NULL DEFAULT 1,
+        $columnProfileNotifyAlarmOnTime INTEGER NOT NULL DEFAULT 1,
+        $columnProfileNotifySessionStart INTEGER NOT NULL DEFAULT 1,
+        $columnProfileNotifyBreakStart INTEGER NOT NULL DEFAULT 1,
+        $columnProfileNotifyBreakEnd INTEGER NOT NULL DEFAULT 1,
+        $columnProfileDailyStudyLimitMinutes INTEGER NOT NULL DEFAULT 240
+      )
+    ''');
+  }
+
+  /// Tạo bảng `study_sessions` và các index phục vụ thống kê, lọc và Recovery.
+  static Future<void> createSessionsTable(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $tableSessions (
+        $columnSessionId TEXT PRIMARY KEY,
+        $columnSessionSubjectId TEXT,
+        $columnSessionSubjectNameSnapshot TEXT NOT NULL,
+        $columnSessionSubjectColorSnapshot INTEGER,
+        $columnSessionTaskId TEXT,
+        $columnSessionTaskTitleSnapshot TEXT,
+        $columnSessionScheduledId TEXT,
+        $columnSessionStartedAt TEXT NOT NULL,
+        $columnSessionEndedAt TEXT,
+        $columnSessionLastHeartbeatAt TEXT NOT NULL,
+        $columnSessionLastStateChangedAt TEXT NOT NULL,
+        $columnSessionStudyDate TEXT NOT NULL,
+        $columnSessionVerifiedStudySeconds INTEGER NOT NULL DEFAULT 0 CHECK ($columnSessionVerifiedStudySeconds >= 0),
+        $columnSessionAccumulatedBreakSeconds INTEGER NOT NULL DEFAULT 0 CHECK ($columnSessionAccumulatedBreakSeconds >= 0),
+        $columnSessionStatus TEXT NOT NULL CHECK (
+          $columnSessionStatus IN (
+            'running',
+            'paused',
+            'in_break',
+            'interrupted_pending',
+            'completed',
+            'cancelled'
+          )
+        ),
+        $columnSessionMode TEXT NOT NULL DEFAULT 'stopwatch',
+        $columnSessionPlannedStudyMinutes INTEGER NOT NULL DEFAULT 0 CHECK ($columnSessionPlannedStudyMinutes >= 0),
+        $columnSessionPlannedBreakMinutes INTEGER NOT NULL DEFAULT 0 CHECK ($columnSessionPlannedBreakMinutes >= 0),
+        $columnSessionNotes TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY ($columnSessionSubjectId) REFERENCES $tableSubjects($columnSubjectId) ON DELETE SET NULL,
+        FOREIGN KEY ($columnSessionTaskId) REFERENCES $tableTasks($columnId) ON DELETE SET NULL
+      )
+    ''');
+
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_sessions_status ON $tableSessions($columnSessionStatus)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_sessions_study_date ON $tableSessions($columnSessionStudyDate)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_sessions_subject_id ON $tableSessions($columnSessionSubjectId)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_sessions_task_id ON $tableSessions($columnSessionTaskId)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_sessions_started_at ON $tableSessions($columnSessionStartedAt)',
+    );
+  }
+
+  /// Bổ sung các cột v7 còn thiếu vào bảng `user_profile` một cách an toàn và idempotent.
+  static Future<void> upgradeProfileColumnsToV7(DatabaseExecutor db) async {
+    final tableInfo = await db.rawQuery('PRAGMA table_info($tableProfile)');
+    final existingCols = tableInfo
+        .map((col) => col['name']?.toString())
+        .whereType<String>()
+        .toSet();
+
+    for (final entry in profileV7ColumnDefs.entries) {
+      if (!existingCols.contains(entry.key)) {
+        await db.execute(
+          'ALTER TABLE $tableProfile ADD COLUMN ${entry.key} ${entry.value}',
+        );
+      }
+    }
   }
 
   /// Khởi tạo cấu trúc bảng khi CSDL được tạo lần đầu tiên.
@@ -146,26 +309,24 @@ class DatabaseHelper {
       'CREATE INDEX IF NOT EXISTS idx_activity_date ON $tableActivities($columnActivityDate)',
     );
 
-    // 4. Tạo bảng hồ sơ cá nhân và cài đặt (user_profile)
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS $tableProfile (
-        $columnProfileId TEXT PRIMARY KEY,
-        $columnProfileName TEXT NOT NULL DEFAULT '',
-        $columnProfileUniversity TEXT NOT NULL DEFAULT '',
-        $columnProfileMajor TEXT NOT NULL DEFAULT '',
-        $columnProfileAcademicYear TEXT NOT NULL DEFAULT '',
-        $columnProfileAvatarId TEXT NOT NULL DEFAULT 'school',
-        $columnProfileTargetHours REAL NOT NULL DEFAULT 10.0,
-        $columnProfileTargetTasks INTEGER NOT NULL DEFAULT 5,
-        $columnProfileThemeMode TEXT NOT NULL DEFAULT 'system',
-        $columnProfileReminderEnabled INTEGER NOT NULL DEFAULT 0
-      )
-    ''');
+    // 4. Tạo bảng hồ sơ cá nhân và cài đặt (user_profile v7)
+    await createProfileTable(db);
+
+    // 5. Tạo bảng phiên học thực tế (study_sessions v7)
+    await createSessionsTable(db);
 
     // Chèn dữ liệu mẫu ban đầu cho CSDL mới tạo
     await _seedInitialSubjects(db);
     await _seedInitialTasks(db);
   }
+
+  @visibleForTesting
+  Future<void> createForTesting(Database db, int version) =>
+      _onCreate(db, version);
+
+  @visibleForTesting
+  Future<void> upgradeForTesting(Database db, int oldVersion, int newVersion) =>
+      _onUpgrade(db, oldVersion, newVersion);
 
   /// Nạp danh mục môn học mẫu ban đầu (chỉ khi bảng chưa có dữ liệu).
   Future<void> _seedInitialSubjects(Database db) async {
@@ -415,6 +576,12 @@ class DatabaseHelper {
           $columnProfileReminderEnabled INTEGER NOT NULL DEFAULT 0
         )
       ''');
+    }
+
+    if (oldVersion < 7) {
+      await createSessionsTable(db);
+      await createProfileTable(db);
+      await upgradeProfileColumnsToV7(db);
     }
   }
 

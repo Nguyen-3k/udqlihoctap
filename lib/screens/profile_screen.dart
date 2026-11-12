@@ -2,9 +2,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../models/study_activity.dart';
 import '../models/user_profile.dart';
+import '../services/audio_playback_gateway.dart';
+import '../services/notification_permission_service.dart';
 import '../theme/app_colors.dart';
 import '../widgets/goals_edit_dialog.dart';
 import '../widgets/info_card.dart';
+import '../widgets/notification_settings_section.dart';
 import '../widgets/profile_edit_dialog.dart';
 
 /// Màn hình Hồ sơ cá nhân, Mục tiêu học tập và Cài đặt (Giai đoạn 5).
@@ -16,6 +19,13 @@ class ProfileScreen extends StatelessWidget {
   final void Function(double hours, int tasks) onUpdateGoals;
   final ValueChanged<String> onUpdateThemeMode;
   final ValueChanged<bool> onUpdateReminderEnabled;
+  final UpdateNotificationPrefsCallback? onUpdateNotificationPrefs;
+  final NotificationPermissionStatus permissionStatus;
+  final Future<void> Function()? onRequestNotificationPermission;
+  final Future<void> Function()? onRequestExactAlarmPermission;
+  final Future<void> Function()? onOpenSystemSettings;
+  final AudioPlaybackGateway? audioGateway;
+  final bool hasValidScheduleSource;
   final Future<void> Function() onResetStudyData;
   final Future<void> Function() onResetProfile;
   final Future<void> Function() onResetSampleData;
@@ -33,6 +43,13 @@ class ProfileScreen extends StatelessWidget {
     required this.onUpdateGoals,
     required this.onUpdateThemeMode,
     required this.onUpdateReminderEnabled,
+    this.onUpdateNotificationPrefs,
+    this.permissionStatus = const NotificationPermissionStatus.unknown(),
+    this.onRequestNotificationPermission,
+    this.onRequestExactAlarmPermission,
+    this.onOpenSystemSettings,
+    this.audioGateway,
+    this.hasValidScheduleSource = false,
     required this.onResetStudyData,
     required this.onResetProfile,
     required this.onResetSampleData,
@@ -703,41 +720,17 @@ class ProfileScreen extends StatelessWidget {
         ),
         const SizedBox(height: 10),
 
-        // Cài đặt 2: Thông báo nhắc học
-        Container(
-          decoration: BoxDecoration(
-            color: context.surfaceColor,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: context.borderColor),
-          ),
-          child: Material(
-            color: Colors.transparent,
-            borderRadius: BorderRadius.circular(16),
-            child: SwitchListTile(
-              key: const ValueKey('reminder_switch'),
-              title: Text(
-                'Nhắc nhở học tập hàng ngày',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: context.textPrimaryColor,
-                ),
-              ),
-              subtitle: Text(
-                'Ghi nhận nhu cầu nhắc nhở học tập. Tính năng thông báo đẩy tự động trên thiết bị sẽ được bổ sung trong bản cập nhật sau.',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: context.textSecondaryColor,
-                ),
-              ),
-              secondary: const Icon(
-                Icons.notifications_active_outlined,
-                color: AppColors.primary,
-              ),
-              value: profile.reminderEnabled,
-              onChanged: onUpdateReminderEnabled,
-            ),
-          ),
+        // Cài đặt 2: Thông báo, Báo thức & Âm thanh (Phase 4)
+        NotificationSettingsSection(
+          profile: profile,
+          onUpdateReminderEnabled: onUpdateReminderEnabled,
+          onUpdateNotificationPrefs: onUpdateNotificationPrefs,
+          permissionStatus: permissionStatus,
+          onRequestNotificationPermission: onRequestNotificationPermission,
+          onRequestExactAlarmPermission: onRequestExactAlarmPermission,
+          onOpenSystemSettings: onOpenSystemSettings,
+          audioGateway: audioGateway,
+          hasValidScheduleSource: hasValidScheduleSource,
         ),
         const SizedBox(height: 10),
 

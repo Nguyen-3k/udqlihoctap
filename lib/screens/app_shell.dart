@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../models/alarm_state.dart';
 import '../models/study_activity.dart';
+import '../models/study_session.dart';
 import '../models/study_streak.dart';
 import '../models/study_task.dart';
 import '../models/subject.dart';
@@ -10,12 +14,19 @@ import '../models/understanding_level.dart';
 import '../models/user_profile.dart';
 import '../database/database_helper.dart';
 import '../repositories/profile_repository.dart';
+import '../repositories/session_repository.dart';
 import '../repositories/subject_repository.dart';
 import '../repositories/task_repository.dart';
 import '../services/backup_service.dart';
+import '../services/session_storage.dart';
+import '../services/study_notification_coordinator.dart';
+import '../services/study_timer_engine.dart';
 import '../theme/app_colors.dart';
 import '../services/web_storage.dart';
+import '../widgets/active_alarm_banner.dart';
 import '../widgets/backup_dialogs.dart';
+import '../widgets/floating_mini_timer_bar.dart';
+import '../widgets/study_recovery_dialog.dart';
 import '../widgets/task_assessment_dialog.dart';
 import '../widgets/task_detail_sheet.dart';
 import '../widgets/task_form_dialog.dart';
@@ -23,6 +34,7 @@ import 'overview_screen.dart';
 import 'plan_screen.dart';
 import 'profile_screen.dart';
 import 'statistics_screen.dart';
+import 'study_timer_screen.dart';
 import 'subjects_screen.dart';
 
 // Bí danh tương thích ngược
@@ -35,6 +47,9 @@ class AppShell extends StatefulWidget {
   final TaskRepository? taskRepository;
   final SubjectRepository? subjectRepository;
   final ProfileRepository? profileRepository;
+  final SessionRepository? sessionRepository;
+  final StudyTimerEngine? timerEngine;
+  final StudyNotificationCoordinator? notificationCoordinator;
   final ValueChanged<ThemeMode>? onThemeModeChanged;
 
   const AppShell({
@@ -42,6 +57,9 @@ class AppShell extends StatefulWidget {
     this.taskRepository,
     this.subjectRepository,
     this.profileRepository,
+    this.sessionRepository,
+    this.timerEngine,
+    this.notificationCoordinator,
     this.onThemeModeChanged,
   });
 
@@ -57,6 +75,7 @@ class _AppShellState extends State<AppShell> {
   late final TaskRepository _taskRepository;
   late final SubjectRepository _subjectRepository;
   late final ProfileRepository _profileRepository;
+  late final SessionRepository _sessionRepository;
 
   // Danh mục môn học đồng bộ từ SQLite hoặc Web preview
   List<Subject> _subjects = [];
@@ -70,8 +89,22 @@ class _AppShellState extends State<AppShell> {
   // Danh sách các hoạt động học tập ghi nhận (dành cho Thống kê)
   List<StudyActivity> _activities = [];
 
+  // Danh sách phiên học thực tế (study_sessions - G8.8 Phase 1)
+  List<StudySession> _sessions = [];
+
   // Thông tin hồ sơ cá nhân, mục tiêu và cài đặt (Giai đoạn 5)
   UserProfile _userProfile = const UserProfile();
+
+  // Bộ máy điều phối Study Timer (G8.8 Phase 2) - cô lập tick khỏi AppShell
+  late final StudyTimerEngine _timerEngine;
+  late final bool _ownsTimerEngine;
+  late final StudyNotificationCoordinator _notificationCoordinator;
+  late final bool _ownsNotificationCoordinator;
+  StudySessionStatus? _observedTimerStatus;
+  String? _observedActiveSessionId;
+  String? _observedLastEndedSessionId;
+  bool _hasCheckedInitialRecovery = false;
+  bool _isRecoveryDialogOpen = false;
 
   // Dịch vụ sao lưu và khôi phục dữ liệu (Giai đoạn 8.7)
   late final BackupService _backupService;
@@ -85,6 +118,27 @@ class _AppShellState extends State<AppShell> {
     _profileRepository =
         widget.profileRepository ??
         ProfileRepository(useWebPreview: _taskRepository.isWebPreview);
+    _sessionRepository =
+        widget.sessionRepository ??
+        SessionRepository(useWebPreview: _taskRepository.isWebPreview);
+    _ownsTimerEngine = widget.timerEngine == null;
+    _timerEngine =
+        widget.timerEngine ??
+        StudyTimerEngine(
+          repository: _sessionRepository,
+          onSessionsChanged: _syncSessionsFromRepository,
+          bindLifecycleObserver: true,
+        );
+    _ownsNotificationCoordinator = widget.notificationCoordinator == null;
+    _notificationCoordinator =
+        widget.notificationCoordinator ??
+        StudyNotificationCoordinator.createDefault(
+          initialProfile: _userProfile,
+          onAlarmStartStudyRequested: _handleAlarmStartStudyRequested,
+        );
+    _notificationCoordinator.bindTimerEngine(_timerEngine);
+    _captureObservedTimerSnapshot();
+    _timerEngine.addListener(_handleTimerBoundaryStateChanged);
     _backupService = BackupService(
       taskRepository: _taskRepository,
       subjectRepository: _subjectRepository,
@@ -94,7 +148,82 @@ class _AppShellState extends State<AppShell> {
     _loadData();
   }
 
-  /// Tải đồng bộ cả môn học, nhiệm vụ, lịch sử ngày học và hoạt động học tập từ các Repository.
+  void _captureObservedTimerSnapshot() {
+    _observedTimerStatus = _timerEngine.currentStatus;
+    _observedActiveSessionId = _timerEngine.activeSession?.id;
+    _observedLastEndedSessionId = _timerEngine.lastEndedSession?.id;
+  }
+
+  void _handleTimerBoundaryStateChanged() {
+    if (!mounted) return;
+    final nextStatus = _timerEngine.currentStatus;
+    final nextActiveId = _timerEngine.activeSession?.id;
+    final nextEndedId = _timerEngine.lastEndedSession?.id;
+    if (nextStatus != _observedTimerStatus ||
+        nextActiveId != _observedActiveSessionId ||
+        nextEndedId != _observedLastEndedSessionId) {
+      _captureObservedTimerSnapshot();
+      if (!_ownsTimerEngine) {
+        unawaited(_syncSessionsFromRepository());
+      }
+      if (_timerEngine.hasPendingRecovery) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _maybeShowRecoveryDialog();
+        });
+      }
+    }
+  }
+
+  /// Đồng bộ lại danh sách phiên học từ nguồn dữ liệu duy nhất (SessionRepository),
+  /// giúp Weekly Goal và Study Streak cập nhật tức thì khi Timer thay đổi trạng thái.
+  Future<void> _syncSessionsFromRepository() async {
+    if (!mounted) return;
+    try {
+      final refreshed = await _sessionRepository.getAllSessions();
+      if (!mounted) return;
+      setState(() {
+        _sessions = refreshed;
+      });
+    } catch (e) {
+      debugPrint('Lỗi đồng bộ danh sách phiên học: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _notificationCoordinator.unbindTimerEngine();
+    if (_ownsNotificationCoordinator) {
+      _notificationCoordinator.dispose();
+    }
+    _timerEngine.removeListener(_handleTimerBoundaryStateChanged);
+    if (_ownsTimerEngine) {
+      _timerEngine.dispose();
+    }
+    super.dispose();
+  }
+
+  void _handleAlarmStartStudyRequested(AlarmRecord alarm) {
+    if (!mounted) return;
+    Subject? matchedSubject;
+    if (alarm.subjectId != null && alarm.subjectId!.isNotEmpty) {
+      for (final s in _subjects) {
+        if (s.id == alarm.subjectId) {
+          matchedSubject = s;
+          break;
+        }
+      }
+    }
+    _openStudyTimer(initialSubject: matchedSubject);
+  }
+
+  void _handleNotificationTap(String? payload, String? actionId) {
+    if (!mounted || payload == null) return;
+    if (payload.startsWith('timer')) {
+      _openStudyTimer();
+    }
+  }
+
+  /// Tải đồng bộ cả môn học, nhiệm vụ, lịch sử ngày học, hoạt động và phiên học từ các Repository.
   Future<void> _loadData() async {
     setState(() {
       _isLoading = true;
@@ -107,6 +236,7 @@ class _AppShellState extends State<AppShell> {
       final activeDatesFuture = _taskRepository.getActiveStudyDates();
       final activitiesFuture = _taskRepository.getAllActivities();
       final profileFuture = _profileRepository.getProfile();
+      final sessionsFuture = _sessionRepository.getAllSessions();
 
       final results = await Future.wait([
         subjectsFuture,
@@ -114,12 +244,26 @@ class _AppShellState extends State<AppShell> {
         activeDatesFuture,
         activitiesFuture,
         profileFuture,
+        sessionsFuture,
       ]);
       final loadedSubjects = results[0] as List<Subject>;
       final loadedTasks = results[1] as List<StudyTask>;
       final loadedActiveDates = results[2] as Set<String>;
       final loadedActivities = results[3] as List<StudyActivity>;
       final loadedProfile = results[4] as UserProfile;
+      var loadedSessions = results[5] as List<StudySession>;
+
+      if (!_hasCheckedInitialRecovery) {
+        _hasCheckedInitialRecovery = true;
+        if (_timerEngine.activeSession == null &&
+            loadedSessions.any((s) => s.status.isActiveOrPending)) {
+          await _timerEngine.restoreSessionState();
+          loadedSessions = await _sessionRepository.getAllSessions();
+        }
+      } else if (_timerEngine.activeSession != null) {
+        await _timerEngine.refreshActiveFromRepository();
+      }
+      _captureObservedTimerSnapshot();
 
       if (!mounted) return;
       setState(() {
@@ -128,9 +272,26 @@ class _AppShellState extends State<AppShell> {
         _activeDates = loadedActiveDates;
         _activities = loadedActivities;
         _userProfile = loadedProfile;
+        _sessions = loadedSessions;
         _isLoading = false;
       });
       widget.onThemeModeChanged?.call(loadedProfile.flutterThemeMode);
+      unawaited(
+        _notificationCoordinator
+            .applyProfile(loadedProfile, promptPermissionIfEnabling: false)
+            .then((_) async {
+              if (!_notificationCoordinator.isInitialized) {
+                await _notificationCoordinator.initialize(
+                  onNotificationTap: _handleNotificationTap,
+                );
+              }
+            }),
+      );
+      if (_timerEngine.hasPendingRecovery) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _maybeShowRecoveryDialog();
+        });
+      }
     } catch (e, stackTrace) {
       if (!mounted) return;
       debugPrint('LỖI TRUY XUẤT CƠ SỞ DỮ LIỆU: $e\n$stackTrace');
@@ -144,6 +305,7 @@ class _AppShellState extends State<AppShell> {
           _tasks = _getSampleTasks();
           _activeDates = WebStreakStorage.loadActiveDates();
           _activities = WebStreakStorage.loadActivities();
+          _sessions = WebSessionStorage.loadSessions();
           _userProfile = webProfile;
           _isLoading = false;
           _errorMessage = null;
@@ -281,9 +443,13 @@ class _AppShellState extends State<AppShell> {
   Future<void> _deleteTask(StudyTask taskToDelete) async {
     try {
       await _taskRepository.deleteTask(taskToDelete.id);
+      await _sessionRepository.detachTaskForWeb(taskToDelete.id);
+      await _timerEngine.refreshActiveFromRepository();
+      final updatedSessions = await _sessionRepository.getAllSessions();
       if (!mounted) return;
       setState(() {
         _tasks.removeWhere((t) => t.id == taskToDelete.id);
+        _sessions = updatedSessions;
       });
       _showNotification(
         kIsWeb
@@ -411,7 +577,54 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
+  Future<void> _maybeShowRecoveryDialog() async {
+    if (!mounted || _isRecoveryDialogOpen || !_timerEngine.hasPendingRecovery) {
+      return;
+    }
+    _isRecoveryDialogOpen = true;
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => StudyRecoveryDialog(timerEngine: _timerEngine),
+      );
+    } finally {
+      _isRecoveryDialogOpen = false;
+    }
+  }
+
+  Future<void> _openStudyTimer({
+    Subject? initialSubject,
+    StudyTask? initialTask,
+  }) async {
+    if (_timerEngine.hasPendingRecovery) {
+      await _maybeShowRecoveryDialog();
+      return;
+    }
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => StudyTimerScreen(
+          timerEngine: _timerEngine,
+          subjects: _subjects,
+          tasks: _tasks,
+          userProfile: _userProfile,
+          initialSubject: initialSubject,
+          initialTask: initialTask,
+          onRequestRecovery: _maybeShowRecoveryDialog,
+        ),
+      ),
+    );
+  }
+
   void _openTaskDetail(StudyTask task) {
+    final matchingSubject = _subjects
+        .where(
+          (s) =>
+              (task.subjectId.isNotEmpty && s.id == task.subjectId) ||
+              s.name == task.subject,
+        )
+        .firstOrNull;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -422,6 +635,8 @@ class _AppShellState extends State<AppShell> {
         onEdit: () => _openTaskForm(initialTask: task),
         onDelete: () => _deleteTask(task),
         onAssess: () => _openAssessmentDialog(task),
+        onStartTimer: () =>
+            _openStudyTimer(initialSubject: matchingSubject, initialTask: task),
       ),
     );
   }
@@ -495,8 +710,9 @@ class _AppShellState extends State<AppShell> {
         );
       }
 
-      // 2. Xóa môn học trong repository
+      // 2. Xóa môn học trong repository (SQLite ON DELETE SET NULL giữ nguyên lịch sử session)
       await _subjectRepository.deleteSubject(subjectId);
+      await _sessionRepository.detachSubjectForWeb(subjectId);
 
       // 3. Tải lại toàn bộ dữ liệu để cập nhật đồng bộ UI
       await _loadData();
@@ -570,25 +786,73 @@ class _AppShellState extends State<AppShell> {
   Future<void> _updateReminderEnabled(bool enabled) async {
     try {
       final updated = await _profileRepository.updateReminderEnabled(enabled);
+      await _notificationCoordinator.applyProfile(
+        updated,
+        promptPermissionIfEnabling: enabled,
+      );
       if (!mounted) return;
       setState(() {
         _userProfile = updated;
       });
-      _showNotification(
-        enabled
-            ? 'Đã lưu tùy chọn: Bật nhắc học (Thông báo đẩy sẽ có ở bản cập nhật sau)'
-            : 'Đã tắt tùy chọn nhắc học',
-      );
+      if (!enabled) {
+        _showNotification('Đã tắt thông báo và hủy các lịch nhắc chờ');
+      } else if (_notificationCoordinator
+          .permissionStatus
+          .notificationsGranted) {
+        _showNotification('Đã bật hệ thống thông báo học tập');
+      } else {
+        _showNotification(
+          'Đã lưu tùy chọn bật thông báo, nhưng thiết bị chưa cấp quyền thông báo.',
+        );
+      }
     } catch (e) {
       if (!mounted) return;
-      _showNotification('Lỗi khi cập nhật nhắc nhở: $e', isError: true);
+      _showNotification('Lỗi khi cập nhật thông báo: $e', isError: true);
+    }
+  }
+
+  Future<void> _updateNotificationPrefs({
+    String? alarmSoundId,
+    String? breakSoundId,
+    int? preReminderMinutes,
+    bool? notifyPreStudy,
+    bool? notifyAlarmOnTime,
+    bool? notifySessionStart,
+    bool? notifyBreakStart,
+    bool? notifyBreakEnd,
+  }) async {
+    try {
+      final updated = await _profileRepository.updateStudyPreferences(
+        alarmSoundId: alarmSoundId,
+        breakSoundId: breakSoundId,
+        preReminderMinutes: preReminderMinutes,
+        notifyPreStudy: notifyPreStudy,
+        notifyAlarmOnTime: notifyAlarmOnTime,
+        notifySessionStart: notifySessionStart,
+        notifyBreakStart: notifyBreakStart,
+        notifyBreakEnd: notifyBreakEnd,
+      );
+      await _notificationCoordinator.applyProfile(
+        updated,
+        promptPermissionIfEnabling: false,
+      );
+      if (!mounted) return;
+      setState(() {
+        _userProfile = updated;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      _showNotification('Lỗi khi lưu cài đặt thông báo: $e', isError: true);
     }
   }
 
   Future<void> _resetStudyData() async {
     try {
+      await _timerEngine.resetStateForDataClear();
       await _taskRepository.clearAllTasks();
+      await _sessionRepository.clearAllSessions();
       await _loadData();
+      await _notificationCoordinator.syncAfterRestoreOrReset(_userProfile);
       if (!mounted) return;
       _showNotification('Đã xóa toàn bộ công việc và lịch sử học tập');
     } catch (e) {
@@ -600,9 +864,11 @@ class _AppShellState extends State<AppShell> {
   Future<void> _resetProfile() async {
     try {
       await _profileRepository.resetProfile();
+      const reset = UserProfile();
+      await _notificationCoordinator.syncAfterRestoreOrReset(reset);
       if (!mounted) return;
       setState(() {
-        _userProfile = const UserProfile();
+        _userProfile = reset;
       });
       widget.onThemeModeChanged?.call(ThemeMode.system);
       _showNotification('Đã đặt lại hồ sơ cá nhân về mặc định');
@@ -614,12 +880,15 @@ class _AppShellState extends State<AppShell> {
 
   Future<void> _resetAllData() async {
     try {
+      await _timerEngine.resetStateForDataClear();
       await _taskRepository.clearAllTasks();
+      await _sessionRepository.clearAllSessions();
       await _profileRepository.resetProfile();
       await _subjectRepository.resetDefaultSubjects(
         SubjectRepository.getDefaultSubjects(),
       );
       await _loadData();
+      await _notificationCoordinator.syncAfterRestoreOrReset(_userProfile);
       if (!mounted) return;
       widget.onThemeModeChanged?.call(ThemeMode.system);
       _showNotification('Đã khôi phục toàn bộ ứng dụng về mặc định');
@@ -673,8 +942,13 @@ class _AppShellState extends State<AppShell> {
               preview: preview,
               onConfirmRestore: () async {
                 try {
+                  await _timerEngine.resetStateForDataClear();
                   await _backupService.restoreBackup(backupMap);
+                  _hasCheckedInitialRecovery = false;
                   await _loadData();
+                  await _notificationCoordinator.syncAfterRestoreOrReset(
+                    _userProfile,
+                  );
                   if (!mounted) return;
                   setState(() {
                     _lastBackupTime = BackupService.lastBackupTime;
@@ -757,19 +1031,41 @@ class _AppShellState extends State<AppShell> {
           ),
           IconButton(
             onPressed: () {
-              _showNotification(
-                'Tính năng thông báo đẩy tự động sẽ được hỗ trợ ở bản cập nhật sau.',
-                duration: const Duration(seconds: 2),
-              );
+              unawaited(_notificationCoordinator.audioGateway.stopPreview());
+              setState(() => _selectedIndex = 4);
+              final perm = _notificationCoordinator.permissionStatus;
+              if (!_userProfile.reminderEnabled) {
+                _showNotification(
+                  'Thông báo đang tắt. Bạn có thể bật trong mục Cá nhân.',
+                );
+              } else if (!perm.notificationsGranted) {
+                _showNotification(
+                  'Cần cấp quyền thông báo hệ thống để nhận nhắc học.',
+                );
+              } else {
+                _showNotification(
+                  'Hệ thống thông báo phiên học & nghỉ giữa giờ đang sẵn sàng.',
+                );
+              }
             },
-            icon: const Icon(Icons.notifications_none_rounded),
-            tooltip: 'Thông báo',
+            icon: Icon(
+              _userProfile.reminderEnabled &&
+                      _notificationCoordinator
+                          .permissionStatus
+                          .notificationsGranted
+                  ? Icons.notifications_active_outlined
+                  : Icons.notifications_none_rounded,
+            ),
+            tooltip: 'Cài đặt thông báo',
           ),
           const SizedBox(width: 4),
         ],
       ),
       body: Column(
         children: [
+          ActiveAlarmBanner(
+            alarmStateManager: _notificationCoordinator.alarmStateManager,
+          ),
           // Banner thông báo rõ ràng khi chạy trên nền tảng Web
           if (kIsWeb)
             Container(
@@ -814,44 +1110,60 @@ class _AppShellState extends State<AppShell> {
               ),
             )
           : null,
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: context.surfaceColor,
-          border: Border(top: BorderSide(color: context.borderColor, width: 1)),
-        ),
-        child: NavigationBar(
-          selectedIndex: _selectedIndex,
-          onDestinationSelected: (index) {
-            setState(() => _selectedIndex = index);
-          },
-          destinations: const [
-            NavigationDestination(
-              icon: Icon(Icons.home_outlined),
-              selectedIcon: Icon(Icons.home_rounded),
-              label: 'Tổng quan',
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FloatingMiniTimerBar(
+            timerEngine: _timerEngine,
+            onTap: () => _openStudyTimer(),
+          ),
+          Container(
+            decoration: BoxDecoration(
+              color: context.surfaceColor,
+              border: Border(
+                top: BorderSide(color: context.borderColor, width: 1),
+              ),
             ),
-            NavigationDestination(
-              icon: Icon(Icons.calendar_month_outlined),
-              selectedIcon: Icon(Icons.calendar_month_rounded),
-              label: 'Kế hoạch',
+            child: NavigationBar(
+              selectedIndex: _selectedIndex,
+              onDestinationSelected: (index) {
+                if (_selectedIndex == 4 && index != 4) {
+                  unawaited(
+                    _notificationCoordinator.audioGateway.stopPreview(),
+                  );
+                }
+                setState(() => _selectedIndex = index);
+              },
+              destinations: const [
+                NavigationDestination(
+                  icon: Icon(Icons.home_outlined),
+                  selectedIcon: Icon(Icons.home_rounded),
+                  label: 'Tổng quan',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.calendar_month_outlined),
+                  selectedIcon: Icon(Icons.calendar_month_rounded),
+                  label: 'Kế hoạch',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.menu_book_outlined),
+                  selectedIcon: Icon(Icons.menu_book_rounded),
+                  label: 'Môn học',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.bar_chart_outlined),
+                  selectedIcon: Icon(Icons.bar_chart_rounded),
+                  label: 'Thống kê',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.person_outline_rounded),
+                  selectedIcon: Icon(Icons.person_rounded),
+                  label: 'Cá nhân',
+                ),
+              ],
             ),
-            NavigationDestination(
-              icon: Icon(Icons.menu_book_outlined),
-              selectedIcon: Icon(Icons.menu_book_rounded),
-              label: 'Môn học',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.bar_chart_outlined),
-              selectedIcon: Icon(Icons.bar_chart_rounded),
-              label: 'Thống kê',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.person_outline_rounded),
-              selectedIcon: Icon(Icons.person_rounded),
-              label: 'Cá nhân',
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -944,7 +1256,12 @@ class _AppShellState extends State<AppShell> {
     final pages = [
       OverviewScreen(
         tasks: _tasks,
-        studyStreak: StudyStreak.fromActiveDates(_activeDates),
+        studyStreak: StudyStreak.fromSessions(_sessions),
+        legacyActiveDatesCount: _activeDates.length,
+        userProfile: _userProfile,
+        sessions: _sessions,
+        timerEngine: _timerEngine,
+        onOpenTimer: () => _openStudyTimer(),
         onToggleComplete: _toggleTaskComplete,
         onTapTask: _openTaskDetail,
         onEditTask: (task) => _openTaskForm(initialTask: task),
@@ -952,6 +1269,7 @@ class _AppShellState extends State<AppShell> {
         onAddTask: () => _openTaskForm(),
         onGoToPlan: () => setState(() => _selectedIndex = 1),
         onGoToSubjects: () => setState(() => _selectedIndex = 2),
+        onGoToProfile: () => setState(() => _selectedIndex = 4),
       ),
       PlanScreen(
         tasks: _tasks,
@@ -974,26 +1292,44 @@ class _AppShellState extends State<AppShell> {
         onDeleteTask: _deleteTask,
         onAddTaskForSubject: (subject) =>
             _openTaskForm(preselectedSubjectId: subject.id),
+        onStartTimerForSubject: (subject) =>
+            _openStudyTimer(initialSubject: subject),
       ),
       StatisticsScreen(
         tasks: _tasks,
         subjects: _subjects,
         activities: _activities,
       ),
-      ProfileScreen(
-        profile: _userProfile,
-        activities: _activities,
-        lastBackupTime: _lastBackupTime,
-        onBackupData: _handleBackupData,
-        onRestoreData: _handleRestoreData,
-        onUpdateProfile: _updateProfile,
-        onUpdateGoals: _updateGoals,
-        onUpdateThemeMode: _updateThemeMode,
-        onUpdateReminderEnabled: _updateReminderEnabled,
-        onResetStudyData: _resetStudyData,
-        onResetProfile: _resetProfile,
-        onResetSampleData: _resetSampleData,
-        onResetAllData: _resetAllData,
+      AnimatedBuilder(
+        animation: _notificationCoordinator,
+        builder: (context, _) => ProfileScreen(
+          profile: _userProfile,
+          activities: _activities,
+          lastBackupTime: _lastBackupTime,
+          onBackupData: _handleBackupData,
+          onRestoreData: _handleRestoreData,
+          onUpdateProfile: _updateProfile,
+          onUpdateGoals: _updateGoals,
+          onUpdateThemeMode: _updateThemeMode,
+          onUpdateReminderEnabled: _updateReminderEnabled,
+          onUpdateNotificationPrefs: _updateNotificationPrefs,
+          permissionStatus: _notificationCoordinator.permissionStatus,
+          onRequestNotificationPermission: () async {
+            await _notificationCoordinator.requestNotificationPermission();
+          },
+          onRequestExactAlarmPermission: () async {
+            await _notificationCoordinator.requestExactAlarmPermission();
+          },
+          onOpenSystemSettings: () async {
+            await _notificationCoordinator.openSystemNotificationSettings();
+          },
+          audioGateway: _notificationCoordinator.audioGateway,
+          hasValidScheduleSource: false,
+          onResetStudyData: _resetStudyData,
+          onResetProfile: _resetProfile,
+          onResetSampleData: _resetSampleData,
+          onResetAllData: _resetAllData,
+        ),
       ),
     ];
 
