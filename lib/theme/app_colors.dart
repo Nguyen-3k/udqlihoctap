@@ -63,6 +63,7 @@ class AppColors {
   static const Color error = Color(0xFFDC2626);
   static const Color errorContainer = Color(0xFFFEE2E2);
   static const Color success = Color(0xFF16A34A);
+  static const Color warning = Color(0xFFD97706);
 
   // --- HÀM TIỆN ÍCH THÍCH ỨNG THEME SÁNG / TỐI (DARK MODE ADAPTIVE) ---
 

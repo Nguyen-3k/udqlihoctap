@@ -477,9 +477,9 @@ class OverviewScreen extends StatelessWidget {
           BoxShadow(
             color:
                 (streakDays > 0 ? const Color(0xFFEA580C) : AppColors.primary)
-                    .withValues(alpha: 0.25),
-            blurRadius: 16,
-            offset: const Offset(0, 8),
+                    .withValues(alpha: 0.15),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
           ),
         ],
       ),

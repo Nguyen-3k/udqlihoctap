@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:web/web.dart' as web;
+import '../models/class_schedule.dart';
 import '../models/study_activity.dart';
 import '../models/user_profile.dart';
 
@@ -108,6 +109,43 @@ class WebStreakStorage {
     try {
       web.window.localStorage.removeItem(_storageKey);
       web.window.localStorage.removeItem(_activitiesStorageKey);
+    } catch (_) {}
+  }
+}
+
+/// Triển khai lưu trữ lịch học trên Web sử dụng localStorage.
+class WebScheduleStorage {
+  static const String _scheduleStorageKey = 'exampilot_web_schedules';
+
+  static List<ClassSchedule> loadSchedules() {
+    try {
+      final raw = web.window.localStorage.getItem(_scheduleStorageKey);
+      if (raw != null && raw.isNotEmpty) {
+        final dynamic decoded = jsonDecode(raw);
+        if (decoded is List) {
+          return decoded
+              .map(
+                (item) => ClassSchedule.fromMap(
+                  Map<String, dynamic>.from(item as Map),
+                ),
+              )
+              .toList();
+        }
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  static void saveSchedules(List<ClassSchedule> schedules) {
+    try {
+      final list = schedules.map((s) => s.toMap()).toList();
+      web.window.localStorage.setItem(_scheduleStorageKey, jsonEncode(list));
+    } catch (_) {}
+  }
+
+  static void clearSchedules() {
+    try {
+      web.window.localStorage.removeItem(_scheduleStorageKey);
     } catch (_) {}
   }
 }

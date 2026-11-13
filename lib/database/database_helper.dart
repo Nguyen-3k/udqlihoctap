@@ -14,7 +14,7 @@ import '../models/understanding_level.dart';
 class DatabaseHelper {
   static const _databaseName = 'exampilot.db';
   static const int databaseVersion =
-      7; // Nâng version lên 7: study_sessions & cài đặt học tập (G8.8 Phase 1)
+      9; // Nâng version lên 9: Thêm cột teacher cho class_schedules (Phase 6B)
   static const _databaseVersion = databaseVersion;
 
   static const tableTasks = 'study_tasks';
@@ -22,6 +22,7 @@ class DatabaseHelper {
   static const tableActivities = 'study_activities';
   static const tableProfile = 'user_profile';
   static const tableSessions = 'study_sessions';
+  static const tableClassSchedules = 'class_schedules';
 
   // Định nghĩa tên các cột trong bảng study_tasks
   static const columnId = 'id';
@@ -36,6 +37,21 @@ class DatabaseHelper {
   static const columnNotes = 'notes';
   static const columnUnderstandingLevel = 'understanding_level';
   static const columnReviewNotes = 'review_notes';
+  static const columnTaskReminderEnabled = 'reminder_enabled';
+  static const columnTaskReminderMinutes = 'reminder_minutes';
+
+  // Định nghĩa tên các cột trong bảng class_schedules (Schema v8 - Phase 4.3)
+  static const columnScheduleId = 'id';
+  static const columnScheduleSubjectId = 'subject_id';
+  static const columnScheduleSubjectName = 'subject_name';
+  static const columnScheduleDayOfWeek = 'day_of_week';
+  static const columnScheduleStartTime = 'start_time';
+  static const columnScheduleEndTime = 'end_time';
+  static const columnScheduleLocation = 'location';
+  static const columnScheduleTeacher = 'teacher';
+  static const columnScheduleNotes = 'notes';
+  static const columnScheduleIsActive = 'is_active';
+  static const columnScheduleRepeatWeekly = 'repeat_weekly';
 
   // Định nghĩa tên các cột trong bảng subjects
   static const columnSubjectId = 'id';
@@ -246,6 +262,33 @@ class DatabaseHelper {
     );
   }
 
+  /// Tạo bảng `class_schedules` và các index phục vụ Lịch học cố định theo tuần (Schema v8 - Phase 4.3).
+  static Future<void> createClassSchedulesTable(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $tableClassSchedules (
+        $columnScheduleId TEXT PRIMARY KEY,
+        $columnScheduleSubjectId TEXT NOT NULL,
+        $columnScheduleSubjectName TEXT NOT NULL,
+        $columnScheduleDayOfWeek INTEGER NOT NULL CHECK ($columnScheduleDayOfWeek >= 1 AND $columnScheduleDayOfWeek <= 7),
+        $columnScheduleStartTime TEXT NOT NULL,
+        $columnScheduleEndTime TEXT NOT NULL,
+        $columnScheduleLocation TEXT NOT NULL DEFAULT '',
+        $columnScheduleTeacher TEXT NOT NULL DEFAULT '',
+        $columnScheduleNotes TEXT NOT NULL DEFAULT '',
+        $columnScheduleIsActive INTEGER NOT NULL DEFAULT 1,
+        $columnScheduleRepeatWeekly INTEGER NOT NULL DEFAULT 1,
+        FOREIGN KEY ($columnScheduleSubjectId) REFERENCES $tableSubjects($columnSubjectId) ON DELETE CASCADE
+      )
+    ''');
+
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_class_schedules_day ON $tableClassSchedules($columnScheduleDayOfWeek)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_class_schedules_subject ON $tableClassSchedules($columnScheduleSubjectId)',
+    );
+  }
+
   /// Bổ sung các cột v7 còn thiếu vào bảng `user_profile` một cách an toàn và idempotent.
   static Future<void> upgradeProfileColumnsToV7(DatabaseExecutor db) async {
     final tableInfo = await db.rawQuery('PRAGMA table_info($tableProfile)');
@@ -260,6 +303,41 @@ class DatabaseHelper {
           'ALTER TABLE $tableProfile ADD COLUMN ${entry.key} ${entry.value}',
         );
       }
+    }
+  }
+
+  /// Bổ sung các cột v8 còn thiếu vào bảng `study_tasks` một cách an toàn và idempotent.
+  static Future<void> upgradeTasksColumnsToV8(DatabaseExecutor db) async {
+    final tasksInfo = await db.rawQuery('PRAGMA table_info($tableTasks)');
+    final hasReminderEnabled = tasksInfo.any(
+      (col) => col['name'] == columnTaskReminderEnabled,
+    );
+    if (!hasReminderEnabled) {
+      await db.execute(
+        'ALTER TABLE $tableTasks ADD COLUMN $columnTaskReminderEnabled INTEGER DEFAULT 0',
+      );
+    }
+
+    final hasReminderMinutes = tasksInfo.any(
+      (col) => col['name'] == columnTaskReminderMinutes,
+    );
+    if (!hasReminderMinutes) {
+      await db.execute(
+        'ALTER TABLE $tableTasks ADD COLUMN $columnTaskReminderMinutes INTEGER DEFAULT 10',
+      );
+    }
+  }
+
+  /// Bổ sung cột teacher vào bảng `class_schedules` một cách an toàn và idempotent.
+  static Future<void> upgradeClassSchedulesColumns(DatabaseExecutor db) async {
+    final tableInfo = await db.rawQuery('PRAGMA table_info($tableClassSchedules)');
+    final hasTeacher = tableInfo.any(
+      (col) => col['name'] == columnScheduleTeacher,
+    );
+    if (!hasTeacher) {
+      await db.execute(
+        'ALTER TABLE $tableClassSchedules ADD COLUMN $columnScheduleTeacher TEXT NOT NULL DEFAULT \'\'',
+      );
     }
   }
 
@@ -290,7 +368,9 @@ class DatabaseHelper {
         $columnStatus TEXT NOT NULL,
         $columnNotes TEXT NOT NULL DEFAULT '',
         $columnUnderstandingLevel TEXT,
-        $columnReviewNotes TEXT
+        $columnReviewNotes TEXT,
+        $columnTaskReminderEnabled INTEGER NOT NULL DEFAULT 0,
+        $columnTaskReminderMinutes INTEGER NOT NULL DEFAULT 10
       )
     ''');
 
@@ -314,6 +394,9 @@ class DatabaseHelper {
 
     // 5. Tạo bảng phiên học thực tế (study_sessions v7)
     await createSessionsTable(db);
+
+    // 6. Tạo bảng lịch học cố định theo tuần (class_schedules v8 - Phase 4.3)
+    await createClassSchedulesTable(db);
 
     // Chèn dữ liệu mẫu ban đầu cho CSDL mới tạo
     await _seedInitialSubjects(db);
@@ -582,6 +665,20 @@ class DatabaseHelper {
       await createSessionsTable(db);
       await createProfileTable(db);
       await upgradeProfileColumnsToV7(db);
+    }
+
+    if (oldVersion < 8) {
+      // 1. Tạo bảng class_schedules nếu chưa có
+      await createClassSchedulesTable(db);
+
+      // 2. Bổ sung các cột nhắc nhở deadline vào bảng study_tasks nếu chưa có
+      await upgradeTasksColumnsToV8(db);
+    }
+
+    if (oldVersion < 9) {
+      // Nâng cấp bổ sung cột teacher cho class_schedules
+      await createClassSchedulesTable(db);
+      await upgradeClassSchedulesColumns(db);
     }
   }
 

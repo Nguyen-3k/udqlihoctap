@@ -443,6 +443,7 @@ void main() {
           )
         ''');
         await DatabaseHelper.createProfileTable(db);
+        await DatabaseHelper.createClassSchedulesTable(db);
         DatabaseHelper.instance.setDatabaseForTesting(db);
 
         final profileRepo = ProfileRepository(

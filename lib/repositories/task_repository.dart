@@ -146,11 +146,22 @@ class TaskRepository {
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     } catch (e) {
-      if (e.toString().contains('actual_minutes')) {
+      final msg = e.toString();
+      if (msg.contains('actual_minutes') ||
+          msg.contains('reminder_enabled') ||
+          msg.contains('reminder_minutes')) {
         try {
           final db = await _dbHelper!.database;
-          final fallbackMap = task.toMap()
-            ..remove(DatabaseHelper.columnActualMinutes);
+          final fallbackMap = Map<String, dynamic>.from(task.toMap());
+          if (msg.contains('actual_minutes')) {
+            fallbackMap.remove(DatabaseHelper.columnActualMinutes);
+          }
+          if (msg.contains('reminder_enabled')) {
+            fallbackMap.remove(DatabaseHelper.columnTaskReminderEnabled);
+          }
+          if (msg.contains('reminder_minutes')) {
+            fallbackMap.remove(DatabaseHelper.columnTaskReminderMinutes);
+          }
           await db.insert(
             DatabaseHelper.tableTasks,
             fallbackMap,
@@ -189,11 +200,22 @@ class TaskRepository {
         );
       }
     } catch (e) {
-      if (e.toString().contains('actual_minutes')) {
+      final msg = e.toString();
+      if (msg.contains('actual_minutes') ||
+          msg.contains('reminder_enabled') ||
+          msg.contains('reminder_minutes')) {
         try {
           final db = await _dbHelper!.database;
-          final fallbackMap = task.toMap()
-            ..remove(DatabaseHelper.columnActualMinutes);
+          final fallbackMap = Map<String, dynamic>.from(task.toMap());
+          if (msg.contains('actual_minutes')) {
+            fallbackMap.remove(DatabaseHelper.columnActualMinutes);
+          }
+          if (msg.contains('reminder_enabled')) {
+            fallbackMap.remove(DatabaseHelper.columnTaskReminderEnabled);
+          }
+          if (msg.contains('reminder_minutes')) {
+            fallbackMap.remove(DatabaseHelper.columnTaskReminderMinutes);
+          }
           final count = await db.update(
             DatabaseHelper.tableTasks,
             fallbackMap,

@@ -38,6 +38,8 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
   late DateTime _selectedDeadline;
   late TaskPriority _selectedPriority;
   late TaskStatus _selectedStatus;
+  late bool _reminderEnabled;
+  late int _reminderMinutes;
 
   late final List<Subject> _effectiveSubjects;
 
@@ -92,6 +94,8 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
         task?.deadline ?? DateTime.now().add(const Duration(days: 1, hours: 2));
     _selectedPriority = task?.priority ?? TaskPriority.medium;
     _selectedStatus = task?.status ?? TaskStatus.todo;
+    _reminderEnabled = task?.reminderEnabled ?? false;
+    _reminderMinutes = task?.reminderMinutes ?? 10;
   }
 
   @override
@@ -163,6 +167,8 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
       understandingLevel: widget.initialTask?.understandingLevel,
       reviewNotes: widget.initialTask?.reviewNotes,
       actualMinutes: widget.initialTask?.actualMinutes,
+      reminderEnabled: _reminderEnabled,
+      reminderMinutes: _reminderMinutes,
     );
 
     widget.onSave(taskToSave);
@@ -334,7 +340,48 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
                           ),
                         ),
                       ),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 8),
+
+                      // Bật/tắt báo thức nhắc deadline (Phase 4.3)
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text(
+                          'Nhắc trước hạn hoàn thành',
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                        ),
+                        subtitle: Text(
+                          _reminderEnabled
+                              ? (_reminderMinutes > 0
+                                  ? 'Báo chuông trước $_reminderMinutes phút'
+                                  : 'Báo chuông đúng giờ hạn chót')
+                              : 'Tắt chuông báo cho công việc này',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: context.textSecondaryColor,
+                          ),
+                        ),
+                        value: _reminderEnabled,
+                        onChanged: (val) => setState(() => _reminderEnabled = val),
+                      ),
+
+                      if (_reminderEnabled) ...[
+                        const SizedBox(height: 4),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
+                          children: [5, 10, 15, 30, 0].map((mins) {
+                            final label = mins == 0 ? 'Đúng giờ' : '$mins phút';
+                            return ChoiceChip(
+                              label: Text(label, style: const TextStyle(fontSize: 12)),
+                              selected: _reminderMinutes == mins,
+                              onSelected: (_) => setState(() => _reminderMinutes = mins),
+                            );
+                          }).toList(),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+
+                      const SizedBox(height: 8),
 
                       // Thời lượng dự kiến
                       TextFormField(

@@ -80,13 +80,19 @@ class PlatformAlarmBridge implements AlarmPlatformBridge {
       return true;
     }
     try {
+      debugPrint(
+        '[ExamPilotAlarm] 1c. Flutter: PlatformAlarmBridge invoking scheduleAlarm on MethodChannel with key=${record.alarmKey}, alarmId=${record.alarmId}, effectiveTrigger=${record.effectiveTriggerAtUtc}',
+      );
       final exact = await _channel.invokeMethod<bool>(
         'scheduleAlarm',
         record.toNativeMap(),
       );
+      debugPrint(
+        '[ExamPilotAlarm] 1c-res. Flutter: MethodChannel scheduleAlarm response exact=$exact',
+      );
       return exact ?? false;
     } catch (e) {
-      debugPrint('Lỗi scheduleAlarm native Android: $e');
+      debugPrint('[ExamPilotAlarm] Lỗi scheduleAlarm native Android: $e');
       return false;
     }
   }

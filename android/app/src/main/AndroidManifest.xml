@@ -8,6 +8,8 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
         android:label="exampilot"
@@ -70,11 +72,21 @@
         <receiver
             android:name=".alarm.AlarmReceiver"
             android:enabled="true"
-            android:exported="false" />
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.example.exampilot.alarm.TRIGGER_ALARM" />
+            </intent-filter>
+        </receiver>
         <receiver
             android:name=".alarm.AlarmActionReceiver"
             android:enabled="true"
-            android:exported="false" />
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.example.exampilot.alarm.ACTION_DISMISS" />
+                <action android:name="com.example.exampilot.alarm.ACTION_SNOOZE" />
+                <action android:name="com.example.exampilot.alarm.ACTION_START_STUDY" />
+            </intent-filter>
+        </receiver>
         <receiver
             android:name=".alarm.ExamPilotBootReceiver"
             android:exported="false">

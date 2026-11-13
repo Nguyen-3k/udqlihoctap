@@ -467,14 +467,15 @@ class _NotificationSettingsSectionState
               label: const Text('Thử nghiệm báo thức sau 10 giây'),
               onPressed: widget.onScheduleTestAlarm != null
                   ? () async {
+                      debugPrint('[ExamPilotAlarm] 0. UI: User pressed test alarm 10s button');
                       final ok = await widget.onScheduleTestAlarm!();
                       if (!context.mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text(
                             ok
-                                ? 'Đã lên lịch báo thức thử nghiệm sau 10 giây! Bạn có thể khóa màn hình để kiểm tra chuông.'
-                                : 'Đã lên lịch báo thức (chế độ dự phòng do thiếu quyền Exact Alarm).',
+                                ? 'Đã lên lịch báo thức thử nghiệm sau 10 giây (Exact Alarm)! Bạn có thể khóa màn hình để kiểm tra chuông.'
+                                : 'Cảnh báo: Báo thức đặt ở chế độ không chính xác (Doze Fallback) do thiếu quyền Exact Alarm. Chuông có thể bị trễ.',
                           ),
                           duration: const Duration(seconds: 4),
                         ),

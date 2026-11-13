@@ -1,3 +1,4 @@
+import '../models/class_schedule.dart';
 import '../models/study_activity.dart';
 import '../models/user_profile.dart';
 
@@ -52,5 +53,22 @@ class WebStreakStorage {
   static void clearActiveDates() {
     _inMemoryStorage.clear();
     _inMemoryActivities.clear();
+  }
+}
+
+/// Triển khai lưu trữ lịch học dự phòng khi không chạy trên Web.
+class WebScheduleStorage {
+  static List<ClassSchedule> _inMemorySchedules = [];
+
+  static List<ClassSchedule> loadSchedules() {
+    return List<ClassSchedule>.from(_inMemorySchedules);
+  }
+
+  static void saveSchedules(List<ClassSchedule> schedules) {
+    _inMemorySchedules = List<ClassSchedule>.from(schedules);
+  }
+
+  static void clearSchedules() {
+    _inMemorySchedules.clear();
   }
 }

@@ -52,12 +52,15 @@ class MainActivity : FlutterActivity() {
 
                 "scheduleAlarm" -> {
                     val args = call.arguments as? Map<*, *>
+                    android.util.Log.i("ExamPilotAlarm", "2. Native MethodChannel 'scheduleAlarm' received payload: $args")
                     val record = args?.let { AlarmStorage.NativeAlarmRecord.fromMap(it) }
                     if (record == null) {
+                        android.util.Log.e("ExamPilotAlarm", "2. Native scheduleAlarm: record is null or invalid")
                         result.error("INVALID_ALARM", "Thiếu thông tin báo thức hợp lệ", null)
                         return@setMethodCallHandler
                     }
                     val scheduledExact = AlarmSchedulerNative.scheduleAlarm(this, record)
+                    android.util.Log.i("ExamPilotAlarm", "2b. Native scheduleAlarm returning result to Flutter: exact=$scheduledExact")
                     result.success(scheduledExact)
                 }
 

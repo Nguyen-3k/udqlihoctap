@@ -30,6 +30,12 @@ class StudyTask {
   /// Thời lượng học thực tế (phút) được người dùng tự ghi nhận khi hoàn thành bài.
   int? actualMinutes;
 
+  /// Bật/tắt báo thức nhắc hạn chót (Phase 4.3).
+  bool reminderEnabled;
+
+  /// Số phút nhắc trước hạn chót (mặc định 10 phút, hỗ trợ 5, 10, 15, 30, 0 phút).
+  int reminderMinutes;
+
   StudyTask({
     required this.id,
     required this.title,
@@ -43,6 +49,8 @@ class StudyTask {
     this.understandingLevel,
     this.reviewNotes,
     this.actualMinutes,
+    this.reminderEnabled = false,
+    this.reminderMinutes = 10,
   }) : subjectId = (subjectId != null && subjectId.isNotEmpty)
            ? subjectId
            : _resolveSubjectIdFromName(subject);
@@ -79,6 +87,8 @@ class StudyTask {
       'understanding_level': understandingLevel?.name,
       'review_notes': reviewNotes,
       'actual_minutes': actualMinutes,
+      'reminder_enabled': reminderEnabled ? 1 : 0,
+      'reminder_minutes': reminderMinutes,
     };
   }
 
@@ -107,6 +117,9 @@ class StudyTask {
       ),
       reviewNotes: map['review_notes']?.toString(),
       actualMinutes: (map['actual_minutes'] as num?)?.toInt(),
+      reminderEnabled: map['reminder_enabled'] == 1 ||
+          map['reminder_enabled'] == true,
+      reminderMinutes: (map['reminder_minutes'] as num?)?.toInt() ?? 10,
     );
   }
 
@@ -173,6 +186,8 @@ class StudyTask {
     bool clearReviewNotes = false,
     int? actualMinutes,
     bool clearActualMinutes = false,
+    bool? reminderEnabled,
+    int? reminderMinutes,
   }) {
     return StudyTask(
       id: id ?? this.id,
@@ -191,6 +206,8 @@ class StudyTask {
       actualMinutes: clearActualMinutes
           ? null
           : (actualMinutes ?? this.actualMinutes),
+      reminderEnabled: reminderEnabled ?? this.reminderEnabled,
+      reminderMinutes: reminderMinutes ?? this.reminderMinutes,
     );
   }
 }

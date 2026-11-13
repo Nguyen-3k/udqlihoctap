@@ -113,15 +113,21 @@ class NotificationScheduler {
         await notificationService.cancel(notifId);
 
         if (preAtUtc.isAfter(nowUtc)) {
-          final body = slot.taskTitle != null && slot.taskTitle!.isNotEmpty
-              ? 'Còn ${profile.preReminderMinutes} phút tới giờ học ${slot.subjectName}: ${slot.taskTitle}'
-              : 'Còn ${profile.preReminderMinutes} phút tới giờ học ${slot.subjectName}';
+          final localStart = slot.startAtUtc.toLocal();
+          final startHour = localStart.hour.toString().padLeft(2, '0');
+          final startMin = localStart.minute.toString().padLeft(2, '0');
+          final startTimeStr = '$startHour:$startMin';
+          final taskDetail = slot.taskTitle != null && slot.taskTitle!.isNotEmpty
+              ? ' (${slot.taskTitle})'
+              : '';
+          final body =
+              'Còn ${profile.preReminderMinutes} phút tới giờ học ${slot.subjectName}$taskDetail (Bắt đầu lúc $startTimeStr)';
           final res = await notificationService.scheduleAt(
             id: notifId,
             scheduledAtUtc: preAtUtc,
             type: AppNotificationType.preStudy,
             profile: profile,
-            title: 'Sắp đến giờ học ${slot.subjectName}',
+            title: 'Nhắc trước giờ học: ${slot.subjectName}',
             body: body,
             payload: 'pre_study:${slot.id}',
             allowExact: permissionStatus.exactAlarmsGranted,

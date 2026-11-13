@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../models/alarm_state.dart';
 import '../models/notification_type.dart';
 import '../models/study_session.dart';
+import '../models/study_task.dart';
 import '../models/user_profile.dart';
 import '../widgets/study_timer_formatters.dart';
 import 'alarm_service.dart';
@@ -36,6 +37,7 @@ class StudyNotificationCoordinator extends ChangeNotifier {
   final StudySessionPlatformBridge sessionBridge;
   final TimerClock clock;
   final List<ScheduledStudySlot> Function()? scheduleSlotsProvider;
+  final List<StudyTask> Function()? tasksProvider;
   final bool ownsAudioGateway;
   final bool ownsAlarmStateManager;
 
@@ -69,6 +71,7 @@ class StudyNotificationCoordinator extends ChangeNotifier {
     StudySessionPlatformBridge? sessionBridge,
     TimerClock? clock,
     List<ScheduledStudySlot> Function()? scheduleSlotsProvider,
+    List<StudyTask> Function()? tasksProvider,
     ValueChanged<AlarmRecord>? onAlarmStartStudyRequested,
   }) : this._build(
          initialProfile: initialProfile,
@@ -86,6 +89,7 @@ class StudyNotificationCoordinator extends ChangeNotifier {
          sessionBridge: sessionBridge ?? NativeStudySessionBridge(),
          clock: clock ?? SystemTimerClock(),
          scheduleSlotsProvider: scheduleSlotsProvider,
+         tasksProvider: tasksProvider,
          onAlarmStartStudyRequested: onAlarmStartStudyRequested,
        );
 
@@ -103,6 +107,7 @@ class StudyNotificationCoordinator extends ChangeNotifier {
     required this.sessionBridge,
     required this.clock,
     required this.scheduleSlotsProvider,
+    required this.tasksProvider,
     required ValueChanged<AlarmRecord>? onAlarmStartStudyRequested,
   }) : _profile = initialProfile,
        alarmStateManager =
@@ -130,12 +135,14 @@ class StudyNotificationCoordinator extends ChangeNotifier {
     required UserProfile initialProfile,
     TimerClock? clock,
     List<ScheduledStudySlot> Function()? scheduleSlotsProvider,
+    List<StudyTask> Function()? tasksProvider,
     ValueChanged<AlarmRecord>? onAlarmStartStudyRequested,
   }) {
     return StudyNotificationCoordinator(
       initialProfile: initialProfile,
       clock: clock,
       scheduleSlotsProvider: scheduleSlotsProvider,
+      tasksProvider: tasksProvider,
       onAlarmStartStudyRequested: onAlarmStartStudyRequested,
     );
   }
@@ -155,10 +162,17 @@ class StudyNotificationCoordinator extends ChangeNotifier {
       startAtUtc: targetUtc,
     );
     final chosenSoundId = _profile.alarmSoundId;
-    return alarmStateManager.scheduleForSlot(
+    debugPrint(
+      '[ExamPilotAlarm] 1. Flutter: scheduleTestAlarm initiated: slot=${testSlot.id}, startAtUtc=$targetUtc, soundId=$chosenSoundId',
+    );
+    final result = await alarmStateManager.scheduleForSlot(
       slot: testSlot,
       soundId: chosenSoundId,
     );
+    debugPrint(
+      '[ExamPilotAlarm] 1e. Flutter: scheduleTestAlarm completed with exact=$result',
+    );
+    return result;
   }
 
   UserProfile get profile => _profile;
@@ -181,6 +195,7 @@ class StudyNotificationCoordinator extends ChangeNotifier {
     await alarmStateManager.restoreOnAppStart();
     await refreshPermissions();
     await syncSchedules();
+    await syncTaskDeadlines();
   }
 
   void bindTimerEngine(StudyTimerEngine engine) {
@@ -256,6 +271,7 @@ class StudyNotificationCoordinator extends ChangeNotifier {
 
     if (!nextProfile.reminderEnabled) {
       await _cancelScheduledBreakEndNotification();
+      await syncTaskDeadlines(const []);
       _lastSyncReport = await scheduler.syncScheduledSlots(
         slots: const [],
         profile: nextProfile,
@@ -301,8 +317,67 @@ class StudyNotificationCoordinator extends ChangeNotifier {
       profile: _profile,
       permissionStatus: _permissionStatus,
     );
+    await syncTaskDeadlines();
     _notifySafely();
     return _lastSyncReport;
+  }
+
+  /// Lên lịch báo thức nhắc deadline cho một công việc cụ thể (Phase 4.3).
+  Future<bool> scheduleTaskDeadline(StudyTask task) async {
+    if (!_profile.reminderEnabled ||
+        task.isCompleted ||
+        !task.reminderEnabled ||
+        task.deadline == null) {
+      await alarmStateManager.cancelTaskDeadlineAlarm(task.id);
+      return false;
+    }
+    return await alarmStateManager.scheduleForTaskDeadline(
+      task: task,
+      soundId: _profile.alarmSoundId,
+    );
+  }
+
+  /// Hủy báo thức hạn chót của một công việc cụ thể.
+  Future<void> cancelTaskDeadline(String taskId) async {
+    await alarmStateManager.cancelTaskDeadlineAlarm(taskId);
+  }
+
+  /// Đồng bộ toàn bộ báo thức hạn chót của các công việc đang mở (chưa hoàn thành).
+  Future<int> syncTaskDeadlines([List<StudyTask>? explicitTasks]) async {
+    if (!_profile.reminderEnabled) {
+      for (final alarm in alarmStateManager.allAlarms) {
+        if (alarm.alarmKey.startsWith('task_deadline:')) {
+          await alarmStateManager.cancelAlarm(alarm.alarmKey);
+        }
+      }
+      return 0;
+    }
+
+    final tasks = explicitTasks ?? tasksProvider?.call() ?? const <StudyTask>[];
+    final activeTaskIdsWithDeadline = <String>{};
+    int scheduledCount = 0;
+
+    for (final task in tasks) {
+      if (!task.isCompleted && task.reminderEnabled && task.deadline != null) {
+        activeTaskIdsWithDeadline.add(task.id);
+        final scheduled = await scheduleTaskDeadline(task);
+        if (scheduled) scheduledCount++;
+      } else {
+        await cancelTaskDeadline(task.id);
+      }
+    }
+
+    // Hủy các alarm deadline mồ côi không còn nằm trong danh sách task hợp lệ
+    for (final alarm in alarmStateManager.pendingAlarms.toList()) {
+      if (alarm.alarmKey.startsWith('task_deadline:')) {
+        final taskId = alarm.alarmKey.replaceFirst('task_deadline:', '');
+        if (!activeTaskIdsWithDeadline.contains(taskId)) {
+          await alarmStateManager.cancelAlarm(alarm.alarmKey);
+        }
+      }
+    }
+
+    return scheduledCount;
   }
 
   void _handleTimerStateChanged() {

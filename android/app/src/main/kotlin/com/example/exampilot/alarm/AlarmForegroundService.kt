@@ -79,6 +79,11 @@ class AlarmForegroundService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    override fun onCreate() {
+        super.onCreate()
+        Log.i(TAG, "5a. AlarmForegroundService.onCreate called")
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP_ALARM) {
             Log.i(TAG, "AlarmForegroundService stop action received")
@@ -94,7 +99,7 @@ class AlarmForegroundService : Service() {
         val snoozeCount = intent?.getIntExtra(EXTRA_SNOOZE_COUNT, 0) ?: 0
 
         activeAlarmId = if (alarmId == 0) DEFAULT_NOTIFICATION_ID else alarmId
-        Log.i(TAG, "AlarmForegroundService onStartCommand alarmKey=$alarmKey, id=$activeAlarmId, sound=$soundId, snooze=$snoozeCount")
+        Log.i(TAG, "5b. AlarmForegroundService.onStartCommand called: alarmKey=$alarmKey, id=$activeAlarmId, sound=$soundId, snooze=$snoozeCount")
 
         ensureNotificationChannel()
 
@@ -106,6 +111,7 @@ class AlarmForegroundService : Service() {
             snoozeCount = snoozeCount,
         )
 
+        var startForegroundSucceeded = false
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(
@@ -116,9 +122,35 @@ class AlarmForegroundService : Service() {
             } else {
                 startForeground(activeAlarmId, notification)
             }
-            Log.i(TAG, "AlarmForegroundService startForeground called for ID $activeAlarmId")
+            startForegroundSucceeded = true
+            Log.i(TAG, "5c. AlarmForegroundService.startForeground called successfully for ID $activeAlarmId")
         } catch (t: Throwable) {
-            Log.e(TAG, "Failed startForeground: ${t.message}", t)
+            Log.e(TAG, "5c. Failed startForeground: ${t.message}. Initiating immediate fallback notification and stopping service.", t)
+        }
+
+        if (!startForegroundSucceeded) {
+            // Không được tiếp tục giả định Service đã chạy!
+            stopMediaPlayerSafely()
+            try { vibrator?.cancel() } catch (_: Throwable) {}
+            try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Throwable) {}
+            wakeLock = null
+
+            val fallbackRecord = AlarmStorage.getByKey(applicationContext, alarmKey) ?: AlarmStorage.NativeAlarmRecord(
+                alarmKey = alarmKey,
+                alarmId = activeAlarmId,
+                title = title,
+                taskTitle = taskTitle,
+                soundId = soundId,
+                status = AlarmStorage.STATUS_RINGING,
+                snoozeCount = snoozeCount,
+                scheduledAtMillis = System.currentTimeMillis(),
+                snoozedUntilMillis = null,
+                updatedAtMillis = System.currentTimeMillis(),
+                acknowledgedAtMillis = null,
+            )
+            AlarmReceiver.postFallbackAlarmNotification(applicationContext, fallbackRecord)
+            stopSelf()
+            return START_NOT_STICKY
         }
 
         acquireWakeLockSafely()
@@ -361,6 +393,7 @@ class AlarmForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        Log.i(TAG, "AlarmForegroundService.onDestroy called")
         stopMediaPlayerSafely()
         try {
             vibrator?.cancel()

@@ -226,13 +226,6 @@ class ProfileScreen extends StatelessWidget {
         color: context.surfaceColor,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: context.borderColor),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: context.isDark ? 0.2 : 0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
       ),
       child: Column(
         children: [
@@ -398,13 +391,6 @@ class ProfileScreen extends StatelessWidget {
         color: context.surfaceColor,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: context.borderColor),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: context.isDark ? 0.2 : 0.02),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

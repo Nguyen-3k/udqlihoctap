@@ -1,10 +1,23 @@
 import 'package:flutter/material.dart';
+import '../models/class_schedule.dart';
 import '../models/study_session.dart';
 import '../models/study_task.dart';
 import '../models/subject.dart';
 import '../models/task_status.dart';
 import '../theme/app_colors.dart';
+import '../widgets/schedule_form_dialog.dart';
 import '../widgets/task_card.dart';
+import '../widgets/timetable_import_dialog.dart';
+import '../widgets/image_timetable_import_dialog.dart';
+
+/// Tab chế độ hiển thị trong màn hình Kế hoạch: Công việc hoặc Lịch học tuần
+enum PlanTab {
+  tasks('Công việc'),
+  schedules('Lịch học tuần');
+
+  final String label;
+  const PlanTab(this.label);
+}
 
 /// Các tùy chọn sắp xếp danh sách công việc trong Kế hoạch học tập (G8.2).
 enum TaskSortOption {
@@ -33,6 +46,16 @@ class PlanScreen extends StatefulWidget {
   final VoidCallback onAddTask;
   final ValueChanged<StudyTask>? onStartStudy;
   final ValueChanged<StudyTask>? onReschedule;
+  final List<ClassSchedule>? schedules;
+  final ValueChanged<ClassSchedule>? onAddSchedule;
+  final ValueChanged<ClassSchedule>? onEditSchedule;
+  final ValueChanged<ClassSchedule>? onDeleteSchedule;
+  final void Function(ClassSchedule schedule, bool isActive)?
+  onToggleScheduleActive;
+  final Future<void> Function({
+    required List<ClassSchedule> schedules,
+    required List<Subject> newSubjects,
+  })? onImportSchedules;
 
   const PlanScreen({
     super.key,
@@ -46,6 +69,12 @@ class PlanScreen extends StatefulWidget {
     required this.onAddTask,
     this.onStartStudy,
     this.onReschedule,
+    this.schedules,
+    this.onAddSchedule,
+    this.onEditSchedule,
+    this.onDeleteSchedule,
+    this.onToggleScheduleActive,
+    this.onImportSchedules,
   });
 
   @override
@@ -55,6 +84,12 @@ class PlanScreen extends StatefulWidget {
 class _PlanScreenState extends State<PlanScreen> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+
+  // Tab chế độ xem: Công việc hoặc Lịch học tuần
+  PlanTab _selectedTab = PlanTab.tasks;
+
+  // Lọc theo ngày trong tuần của lịch học (null = Tất cả, 1 = T2.. 7 = CN)
+  int? _selectedDayOfWeekFilter;
 
   // Lọc theo trạng thái: null = Tất cả, hoặc TaskStatus cụ thể
   TaskStatus? _filterStatus;
@@ -78,6 +113,109 @@ class _PlanScreenState extends State<PlanScreen> {
       _filterStatus = null;
       _filterSubjectId = null;
     });
+  }
+
+  void _openAddScheduleDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => ScheduleFormDialog(
+        subjects: widget.subjects ?? const [],
+        existingSchedules: widget.schedules ?? const [],
+        onSave: (newSchedule) {
+          widget.onAddSchedule?.call(newSchedule);
+        },
+      ),
+    );
+  }
+
+  void _openImportScheduleDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => TimetableImportDialog(
+        subjects: widget.subjects ?? const [],
+        existingSchedules: widget.schedules ?? const [],
+        onImport: ({required schedules, required newSubjects}) async {
+          if (widget.onImportSchedules != null) {
+            await widget.onImportSchedules!(
+              schedules: schedules,
+              newSubjects: newSubjects,
+            );
+          }
+        },
+      ),
+    );
+  }
+
+  void _openImageImportScheduleDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => ImageTimetableImportDialog(
+        subjects: widget.subjects ?? const [],
+        existingSchedules: widget.schedules ?? const [],
+        onImport: ({required schedules, required newSubjects}) async {
+          if (widget.onImportSchedules != null) {
+            await widget.onImportSchedules!(
+              schedules: schedules,
+              newSubjects: newSubjects,
+            );
+          }
+        },
+      ),
+    );
+  }
+
+  void _openEditScheduleDialog(ClassSchedule schedule) {
+    showDialog(
+      context: context,
+      builder: (ctx) => ScheduleFormDialog(
+        initialSchedule: schedule,
+        subjects: widget.subjects ?? const [],
+        existingSchedules: widget.schedules ?? const [],
+        onSave: (updatedSchedule) {
+          widget.onEditSchedule?.call(updatedSchedule);
+        },
+      ),
+    );
+  }
+
+  void _confirmDeleteSchedule(ClassSchedule schedule) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: ctx.surfaceColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          'Xác nhận xóa',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: ctx.textPrimaryColor,
+          ),
+        ),
+        content: Text(
+          'Bạn có chắc chắn muốn xóa lịch học môn "${schedule.subjectName}" (${schedule.dayOfWeekText} ${schedule.timeRangeText}) không?',
+          style: TextStyle(
+            fontSize: 14,
+            color: ctx.textSecondaryColor,
+            height: 1.4,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Hủy'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.error),
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              widget.onDeleteSchedule?.call(schedule);
+            },
+            child: const Text('Xóa'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -252,9 +390,11 @@ class _PlanScreenState extends State<PlanScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      hasActiveFilter
-                          ? 'Hiển thị ${filteredTasks.length}/${widget.tasks.length} công việc'
-                          : 'Quản lý ${widget.tasks.length} công việc & hạn nộp',
+                      _selectedTab == PlanTab.tasks
+                          ? (hasActiveFilter
+                              ? 'Hiển thị ${filteredTasks.length}/${widget.tasks.length} công việc'
+                              : 'Quản lý ${widget.tasks.length} công việc & hạn nộp')
+                          : 'Thời khóa biểu ${widget.schedules?.length ?? 0} lịch học theo tuần',
                       style: TextStyle(
                         color: context.textSecondaryColor,
                         fontSize: 13,
@@ -265,9 +405,10 @@ class _PlanScreenState extends State<PlanScreen> {
               ),
               const SizedBox(width: 8),
 
-              // Nút Menu sắp xếp
-              PopupMenuButton<TaskSortOption>(
-                tooltip: 'Sắp xếp danh sách',
+              // Nút Menu sắp xếp (chỉ hiện khi xem tab Công việc)
+              if (_selectedTab == PlanTab.tasks)
+                PopupMenuButton<TaskSortOption>(
+                  tooltip: 'Sắp xếp danh sách',
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
                 ),
@@ -360,8 +501,37 @@ class _PlanScreenState extends State<PlanScreen> {
 
           const SizedBox(height: 14),
 
-          // Thanh tìm kiếm theo thời gian thực (Real-time Search)
-          TextField(
+          // Bộ chuyển đổi Tab: Công việc vs Lịch học tuần (hiển thị khi tính năng lịch học được cung cấp)
+          if (widget.schedules != null) ...[
+            SizedBox(
+              width: double.infinity,
+              child: SegmentedButton<PlanTab>(
+                key: const ValueKey('plan_tab_segmented_button'),
+                segments: [
+                  ButtonSegment(
+                    value: PlanTab.tasks,
+                    label: Text('Công việc (${widget.tasks.length})'),
+                    icon: const Icon(Icons.check_circle_outline_rounded, size: 16),
+                  ),
+                  ButtonSegment(
+                    value: PlanTab.schedules,
+                    label: Text('Lịch học tuần (${widget.schedules?.length ?? 0})'),
+                    icon: const Icon(Icons.calendar_month_rounded, size: 16),
+                  ),
+                ],
+                selected: {_selectedTab},
+                onSelectionChanged: (set) =>
+                    setState(() => _selectedTab = set.first),
+              ),
+            ),
+            const SizedBox(height: 14),
+          ],
+
+          if (_selectedTab == PlanTab.schedules)
+            _buildWeeklyScheduleView(context)
+          else ...[
+            // Thanh tìm kiếm theo thời gian thực (Real-time Search)
+            TextField(
             controller: _searchController,
             onChanged: (val) {
               setState(() {
@@ -524,6 +694,406 @@ class _PlanScreenState extends State<PlanScreen> {
             ),
             const SizedBox(height: 20),
           ],
+        ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWeeklyScheduleView(BuildContext context) {
+    final allSchedules = widget.schedules ?? const <ClassSchedule>[];
+    final filtered = _selectedDayOfWeekFilter == null
+        ? allSchedules
+        : allSchedules
+            .where((s) => s.dayOfWeek == _selectedDayOfWeekFilter)
+            .toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Thanh công cụ: Tiêu đề danh sách & Nút thêm
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Lịch học cố định',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: context.textPrimaryColor,
+                  ),
+                ),
+                Text(
+                  'Lặp lại hàng tuần & kích hoạt chuông báo',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: context.textSecondaryColor,
+                  ),
+                ),
+              ],
+            ),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  key: const ValueKey('import_schedule_button'),
+                  icon: const Icon(Icons.upload_file_rounded, size: 18),
+                  label: const Text('Nhập file'),
+                  onPressed: _openImportScheduleDialog,
+                ),
+                OutlinedButton.icon(
+                  key: const ValueKey('import_image_schedule_button'),
+                  icon: const Icon(Icons.document_scanner_rounded, size: 18),
+                  label: const Text('Nhập từ ảnh'),
+                  onPressed: _openImageImportScheduleDialog,
+                ),
+                FilledButton.icon(
+                  key: const ValueKey('add_schedule_button'),
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Thêm lịch'),
+                  onPressed: _openAddScheduleDialog,
+                ),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+
+        // Bộ lọc ngày trong tuần: Tất cả, T2..CN
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              _buildDayChip('Tất cả', null),
+              const SizedBox(width: 6),
+              _buildDayChip('T2', 1),
+              const SizedBox(width: 6),
+              _buildDayChip('T3', 2),
+              const SizedBox(width: 6),
+              _buildDayChip('T4', 3),
+              const SizedBox(width: 6),
+              _buildDayChip('T5', 4),
+              const SizedBox(width: 6),
+              _buildDayChip('T6', 5),
+              const SizedBox(width: 6),
+              _buildDayChip('T7', 6),
+              const SizedBox(width: 6),
+              _buildDayChip('CN', 7),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        if (filtered.isEmpty)
+          _buildEmptyScheduleState()
+        else
+          ...filtered.map((schedule) => _buildScheduleCard(context, schedule)),
+      ],
+    );
+  }
+
+  Widget _buildDayChip(String label, int? dayValue) {
+    final isSelected = _selectedDayOfWeekFilter == dayValue;
+    return ChoiceChip(
+      key: ValueKey('day_filter_${dayValue ?? 'all'}'),
+      label: Text(label, style: const TextStyle(fontSize: 12)),
+      selected: isSelected,
+      onSelected: (_) {
+        setState(() {
+          _selectedDayOfWeekFilter = dayValue;
+        });
+      },
+    );
+  }
+
+  Widget _buildScheduleCard(BuildContext context, ClassSchedule schedule) {
+    Subject? subject;
+    if (widget.subjects != null) {
+      for (final s in widget.subjects!) {
+        if (s.id == schedule.subjectId) {
+          subject = s;
+          break;
+        }
+      }
+    }
+    final subjectColor = subject?.color ?? AppColors.primary;
+
+    return Container(
+      key: ValueKey('schedule_card_${schedule.id}'),
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: context.surfaceColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: schedule.isActive
+              ? context.borderColor
+              : context.borderColor.withValues(alpha: 0.5),
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Thanh màu nhận diện môn học bên trái
+              Container(
+                width: 5,
+                color: schedule.isActive
+                    ? subjectColor
+                    : context.textSecondaryColor.withValues(alpha: 0.3),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: subjectColor.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              schedule.dayOfWeekText,
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.bold,
+                                color: subjectColor,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              schedule.subjectName,
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.bold,
+                                color: schedule.isActive
+                                    ? context.textPrimaryColor
+                                    : context.textSecondaryColor,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          Switch(
+                            key: ValueKey('schedule_switch_${schedule.id}'),
+                            value: schedule.isActive,
+                            onChanged: (val) {
+                              widget.onToggleScheduleActive?.call(schedule, val);
+                            },
+                          ),
+                          PopupMenuButton<String>(
+                            key: ValueKey('schedule_menu_${schedule.id}'),
+                            icon: Icon(
+                              Icons.more_vert_rounded,
+                              size: 20,
+                              color: context.textSecondaryColor,
+                            ),
+                            onSelected: (action) {
+                              if (action == 'edit') {
+                                _openEditScheduleDialog(schedule);
+                              } else if (action == 'delete') {
+                                _confirmDeleteSchedule(schedule);
+                              }
+                            },
+                            itemBuilder: (ctx) => [
+                              const PopupMenuItem(
+                                value: 'edit',
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.edit_rounded, size: 18),
+                                    SizedBox(width: 8),
+                                    Text('Chỉnh sửa'),
+                                  ],
+                                ),
+                              ),
+                              const PopupMenuItem(
+                                value: 'delete',
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.delete_outline_rounded,
+                                      size: 18,
+                                      color: AppColors.error,
+                                    ),
+                                    SizedBox(width: 8),
+                                    Text(
+                                      'Xóa',
+                                      style: TextStyle(color: AppColors.error),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.access_time_rounded,
+                            size: 15,
+                            color: context.textSecondaryColor,
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            schedule.timeRangeText,
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: context.textPrimaryColor,
+                            ),
+                          ),
+                          if (schedule.location.isNotEmpty) ...[
+                            const SizedBox(width: 14),
+                            Icon(
+                              Icons.location_on_outlined,
+                              size: 15,
+                              color: context.textSecondaryColor,
+                            ),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                schedule.location,
+                                style: TextStyle(
+                                  fontSize: 12.5,
+                                  color: context.textSecondaryColor,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      if (schedule.teacher.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.person_outline_rounded,
+                              size: 15,
+                              color: context.textSecondaryColor,
+                            ),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                'GV: ${schedule.teacher}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: context.textSecondaryColor,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                      if (schedule.notes.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          schedule.notes,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: context.textSecondaryColor,
+                            fontStyle: FontStyle.italic,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyScheduleState() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
+      decoration: BoxDecoration(
+        color: context.surfaceColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: context.borderColor),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: context.primaryContainerColor,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.calendar_month_rounded,
+              size: 40,
+              color: AppColors.primary,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Chưa có lịch học nào',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: context.textPrimaryColor,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Thêm lịch học cố định theo tuần để nhận thông báo và chuông báo thức trước giờ học.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 13,
+              color: context.textSecondaryColor,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 18),
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              OutlinedButton.icon(
+                key: const ValueKey('empty_schedule_import_button'),
+                onPressed: _openImportScheduleDialog,
+                icon: const Icon(Icons.upload_file_rounded, size: 18),
+                label: const Text('Nhập Excel/CSV'),
+              ),
+              OutlinedButton.icon(
+                key: const ValueKey('empty_schedule_import_image_button'),
+                onPressed: _openImageImportScheduleDialog,
+                icon: const Icon(Icons.document_scanner_rounded, size: 18),
+                label: const Text('Nhập từ ảnh'),
+              ),
+              FilledButton.icon(
+                key: const ValueKey('empty_schedule_add_button'),
+                onPressed: _openAddScheduleDialog,
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Thêm lịch học tuần'),
+              ),
+            ],
+          ),
         ],
       ),
     );

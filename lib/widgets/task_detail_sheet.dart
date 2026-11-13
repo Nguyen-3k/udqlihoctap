@@ -281,6 +281,16 @@ class TaskDetailSheet extends StatelessWidget {
                       : 'Không có hạn chót',
                   color: AppColors.primary,
                 ),
+                if (task.reminderEnabled && task.deadline != null)
+                  _buildDetailItem(
+                    context,
+                    icon: Icons.notifications_active_rounded,
+                    label: 'Báo thức nhắc hạn',
+                    value: task.reminderMinutes > 0
+                        ? 'Trước ${task.reminderMinutes} phút'
+                        : 'Đúng giờ hạn chót',
+                    color: AppColors.primary,
+                  ),
                 _buildDetailItem(
                   context,
                   icon: Icons.timelapse_rounded,

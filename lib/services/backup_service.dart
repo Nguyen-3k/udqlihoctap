@@ -2,11 +2,13 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:sqflite/sqflite.dart';
 import '../database/database_helper.dart';
+import '../models/class_schedule.dart';
 import '../models/study_activity.dart';
 import '../models/study_task.dart';
 import '../models/subject.dart';
 import '../models/user_profile.dart';
 import '../repositories/profile_repository.dart';
+import '../repositories/schedule_repository.dart';
 import '../repositories/subject_repository.dart';
 import '../repositories/task_repository.dart';
 import 'backup_storage.dart';
@@ -19,6 +21,7 @@ class BackupPreview {
   final int totalSubjects;
   final int totalTasks;
   final int totalActivities;
+  final int totalSchedules;
   final String userName;
   final double weeklyTargetHours;
   final int weeklyTargetTasks;
@@ -31,6 +34,7 @@ class BackupPreview {
     required this.totalSubjects,
     required this.totalTasks,
     required this.totalActivities,
+    this.totalSchedules = 0,
     required this.userName,
     required this.weeklyTargetHours,
     required this.weeklyTargetTasks,
@@ -76,12 +80,14 @@ class BackupService {
   final TaskRepository taskRepository;
   final SubjectRepository subjectRepository;
   final ProfileRepository profileRepository;
+  final ScheduleRepository? scheduleRepository;
   final DatabaseHelper? dbHelper;
 
   BackupService({
     required this.taskRepository,
     required this.subjectRepository,
     required this.profileRepository,
+    this.scheduleRepository,
     this.dbHelper,
   });
 
@@ -104,12 +110,16 @@ class BackupService {
     final subjects = await subjectRepository.getAllSubjects();
     final tasks = await taskRepository.getAllTasks();
     final activities = await taskRepository.getAllActivities();
+    final schedules = scheduleRepository != null
+        ? await scheduleRepository!.getAllSchedules()
+        : <ClassSchedule>[];
 
     final dataBlock = <String, dynamic>{
       'profile': profile.toMap(),
       'subjects': subjects.map((s) => s.toMap()).toList(),
       'tasks': tasks.map((t) => t.toMap()).toList(),
       'activities': activities.map((a) => a.toMap()).toList(),
+      'schedules': schedules.map((s) => s.toMap()).toList(),
     };
 
     final canonicalDataJson = jsonEncode(dataBlock);
@@ -125,6 +135,7 @@ class BackupService {
         'totalSubjects': subjects.length,
         'totalTasks': tasks.length,
         'totalActivities': activities.length,
+        'totalSchedules': schedules.length,
       },
       'data': dataBlock,
       'checksum': checksum,
@@ -312,6 +323,18 @@ class BackupService {
       }
     }
 
+    // Kiểm tra cấu trúc danh sách lịch học (nếu có trong bản sao lưu mới)
+    final schedulesRaw = dataMap['schedules'] is List
+        ? (dataMap['schedules'] as List)
+        : const [];
+    for (final s in schedulesRaw) {
+      if (s is! Map) {
+        return const BackupValidationResult.failure(
+          'Dữ liệu lịch học trong tệp bị lỗi định dạng.',
+        );
+      }
+    }
+
     // 7. Trích xuất thông tin xem trước (Preview)
     final profileMap = dataMap['profile'] is Map
         ? Map<String, dynamic>.from(dataMap['profile'] as Map)
@@ -333,6 +356,7 @@ class BackupService {
       totalSubjects: subjectsRaw.length,
       totalTasks: tasksRaw.length,
       totalActivities: activitiesRaw.length,
+      totalSchedules: schedulesRaw.length,
       userName: userName,
       weeklyTargetHours: targetHours,
       weeklyTargetTasks: targetTasks,
@@ -369,6 +393,14 @@ class BackupService {
         .map((m) => StudyActivity.fromMap(Map<String, dynamic>.from(m as Map)))
         .toList();
 
+    final schedulesRaw = data['schedules'] is List
+        ? (data['schedules'] as List)
+        : const [];
+    final schedules = schedulesRaw
+        .whereType<Map>()
+        .map((m) => ClassSchedule.fromMap(Map<String, dynamic>.from(m)))
+        .toList();
+
     final rawProfile = data['profile'] is Map
         ? UserProfile.fromMap(Map<String, dynamic>.from(data['profile'] as Map))
         : const UserProfile();
@@ -395,11 +427,16 @@ class BackupService {
 
       // Sử dụng Transaction: Nếu bất kỳ bước nào thất bại, toàn bộ dữ liệu cũ được Rollback nguyên vẹn!
       await db.transaction((txn) async {
+        // Đảm bảo bảng class_schedules và các cột v8 của study_tasks tồn tại nếu DB chưa có
+        await DatabaseHelper.createClassSchedulesTable(txn);
+        await DatabaseHelper.upgradeTasksColumnsToV8(txn);
+
         // Xóa dữ liệu cũ
         await txn.delete(DatabaseHelper.tableTasks);
         await txn.delete(DatabaseHelper.tableActivities);
         await txn.delete(DatabaseHelper.tableSubjects);
         await txn.delete(DatabaseHelper.tableProfile);
+        await txn.delete(DatabaseHelper.tableClassSchedules);
 
         // Ghi dữ liệu môn học
         for (final s in subjects) {
@@ -428,6 +465,15 @@ class BackupService {
           );
         }
 
+        // Ghi dữ liệu lịch học cố định theo tuần
+        for (final sc in schedules) {
+          await txn.insert(
+            DatabaseHelper.tableClassSchedules,
+            sc.toMap(),
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+
         // Bảo đảm bảng user_profile có đủ cột v7 và ghi hồ sơ cá nhân
         await DatabaseHelper.upgradeProfileColumnsToV7(txn);
         await txn.insert(
@@ -440,6 +486,9 @@ class BackupService {
       // Chế độ Web Preview: Khôi phục qua bộ nhớ và Web Storage
       await taskRepository.clearAllTasks();
       await subjectRepository.resetDefaultSubjects(subjects);
+      if (scheduleRepository != null) {
+        await scheduleRepository!.resetDefaultSchedules(schedules);
+      }
       for (final t in tasks) {
         await taskRepository.insertTask(t);
       }

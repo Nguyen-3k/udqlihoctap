@@ -56,7 +56,9 @@ void main() {
         ${DatabaseHelper.columnStatus} TEXT NOT NULL,
         ${DatabaseHelper.columnNotes} TEXT NOT NULL DEFAULT '',
         ${DatabaseHelper.columnUnderstandingLevel} TEXT,
-        ${DatabaseHelper.columnReviewNotes} TEXT
+        ${DatabaseHelper.columnReviewNotes} TEXT,
+        ${DatabaseHelper.columnTaskReminderEnabled} INTEGER DEFAULT 0,
+        ${DatabaseHelper.columnTaskReminderMinutes} INTEGER DEFAULT 10
       )
     ''');
 

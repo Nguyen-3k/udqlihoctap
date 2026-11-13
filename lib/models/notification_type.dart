@@ -35,6 +35,9 @@ class NotificationIds {
 
   static int alarmForSlot(String slotId) => stablePositiveInt('alarm:$slotId');
 
+  static int alarmForTaskDeadline(String taskId) =>
+      stablePositiveInt('task_deadline:$taskId');
+
   static int sessionStart(String sessionId) =>
       stablePositiveInt('session_start:$sessionId');
 

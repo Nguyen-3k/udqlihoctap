@@ -305,7 +305,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(testAlarmCalled, isTrue);
-      expect(find.textContaining('Đã lên lịch báo thức thử nghiệm sau 10 giây!'), findsOneWidget);
+      expect(find.textContaining('Đã lên lịch báo thức thử nghiệm sau 10 giây (Exact Alarm)!'), findsOneWidget);
       expect(exactAlarmReqCalled, isFalse);
     });
 
@@ -349,6 +349,43 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(exactAlarmReqCalled, isTrue);
+    });
+
+    testWidgets('6. NotificationSettingsSection displays warning SnackBar when scheduleTestAlarm falls back to inexact', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: NotificationSettingsSection(
+                profile: const UserProfile(
+                  reminderEnabled: true,
+                  notifyAlarmOnTime: true,
+                ),
+                initiallyExpanded: true,
+                permissionStatus: const NotificationPermissionStatus(
+                  notificationsGranted: true,
+                  exactAlarmsGranted: false,
+                ),
+                onUpdateReminderEnabled: (_) {},
+                onScheduleTestAlarm: () async {
+                  return false; // Inexact fallback
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      final buttonFinder = find.byKey(const ValueKey('test_alarm_10s_button'));
+      await tester.ensureVisible(buttonFinder);
+      await tester.pumpAndSettle();
+
+      await tester.tap(buttonFinder);
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Cảnh báo: Báo thức đặt ở chế độ không chính xác (Doze Fallback)'), findsOneWidget);
     });
   });
 }

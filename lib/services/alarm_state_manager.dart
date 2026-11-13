@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/alarm_state.dart';
 import '../models/notification_type.dart';
+import '../models/study_task.dart';
 import 'alarm_service.dart';
 import 'alarm_store.dart';
 import 'audio_playback_gateway.dart';
@@ -59,6 +60,7 @@ class AlarmStateManager extends ChangeNotifier {
   bool get hasRingingAlarm => activeRingingAlarm != null;
 
   static String buildSlotAlarmKey(String slotId) => 'slot:$slotId';
+  static String buildTaskAlarmKey(String taskId) => 'task_deadline:$taskId';
 
   /// Khởi tạo và phục hồi trạng thái báo thức đã lưu khi mở ứng dụng.
   Future<void> restoreOnAppStart() async {
@@ -141,9 +143,78 @@ class AlarmStateManager extends ChangeNotifier {
 
     _alarms[key] = record;
     await store.saveAll(_alarms.values.toList());
+    debugPrint(
+      '[ExamPilotAlarm] 1b. Flutter: AlarmStateManager.scheduleForSlot record=$key, alarmId=$alarmId, triggerAt=${record.effectiveTriggerAtUtc}',
+    );
+    final exact = await platformBridge.scheduleAlarm(record);
+    debugPrint(
+      '[ExamPilotAlarm] 1d. Flutter: AlarmStateManager.scheduleForSlot bridge returned exact=$exact',
+    );
+    _notifySafely();
+    return exact;
+  }
+
+  /// Lên lịch báo thức cho hạn chót (deadline) của một StudyTask (Phase 4.3).
+  Future<bool> scheduleForTaskDeadline({
+    required StudyTask task,
+    required String soundId,
+  }) async {
+    if (!_initialized) {
+      await restoreOnAppStart();
+    }
+    final nowUtc = clock.nowUtc();
+    final deadline = task.deadline;
+    if (deadline == null || task.isCompleted || !task.reminderEnabled) {
+      return false;
+    }
+
+    final triggerAtUtc = deadline
+        .toUtc()
+        .subtract(Duration(minutes: task.reminderMinutes));
+    if (!triggerAtUtc.isAfter(nowUtc)) {
+      return false;
+    }
+
+    final key = buildTaskAlarmKey(task.id);
+    final existing = _alarms[key];
+    if (existing != null && existing.isPendingTrigger) {
+      await platformBridge.cancelAlarm(existing);
+    }
+
+    final alarmId =
+        existing?.alarmId ?? NotificationIds.alarmForTaskDeadline(task.id);
+    final reminderSuffix = task.reminderMinutes > 0
+        ? 'Còn ${task.reminderMinutes} phút tới hạn hoàn thành: ${task.title}'
+        : 'Đến hạn hoàn thành công việc: ${task.title}';
+
+    final record = AlarmRecord(
+      alarmKey: key,
+      alarmId: alarmId,
+      scheduledSessionId: null,
+      subjectId: task.subjectId,
+      title: 'Hạn chót: ${task.title}',
+      taskTitle: '${task.subject} • $reminderSuffix',
+      soundId: soundId,
+      status: AlarmStatus.scheduled,
+      snoozeCount: 0,
+      scheduledAtUtc: triggerAtUtc,
+      updatedAtUtc: nowUtc,
+    );
+
+    _alarms[key] = record;
+    await store.saveAll(_alarms.values.toList());
+    debugPrint(
+      '[ExamPilotAlarm] 1b-task. Flutter: AlarmStateManager.scheduleForTaskDeadline record=$key, triggerAt=${record.effectiveTriggerAtUtc}',
+    );
     final exact = await platformBridge.scheduleAlarm(record);
     _notifySafely();
     return exact;
+  }
+
+  /// Hủy báo thức hạn chót của một công việc (khi hoàn thành, xóa hoặc đổi hạn)
+  Future<void> cancelTaskDeadlineAlarm(String taskId) async {
+    final key = buildTaskAlarmKey(taskId);
+    await cancelAlarm(key);
   }
 
   /// Kích hoạt báo thức chuyển sang trạng thái `Ringing` (từ Scheduled hoặc Snoozed).

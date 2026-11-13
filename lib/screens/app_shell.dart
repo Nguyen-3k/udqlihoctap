@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../models/alarm_state.dart';
+import '../models/class_schedule.dart';
 import '../models/study_activity.dart';
 import '../models/study_session.dart';
 import '../models/study_streak.dart';
@@ -14,6 +15,7 @@ import '../models/understanding_level.dart';
 import '../models/user_profile.dart';
 import '../database/database_helper.dart';
 import '../repositories/profile_repository.dart';
+import '../repositories/schedule_repository.dart';
 import '../repositories/session_repository.dart';
 import '../repositories/subject_repository.dart';
 import '../repositories/task_repository.dart';
@@ -48,6 +50,7 @@ class AppShell extends StatefulWidget {
   final SubjectRepository? subjectRepository;
   final ProfileRepository? profileRepository;
   final SessionRepository? sessionRepository;
+  final ScheduleRepository? scheduleRepository;
   final StudyTimerEngine? timerEngine;
   final StudyNotificationCoordinator? notificationCoordinator;
   final ValueChanged<ThemeMode>? onThemeModeChanged;
@@ -58,6 +61,7 @@ class AppShell extends StatefulWidget {
     this.subjectRepository,
     this.profileRepository,
     this.sessionRepository,
+    this.scheduleRepository,
     this.timerEngine,
     this.notificationCoordinator,
     this.onThemeModeChanged,
@@ -76,12 +80,16 @@ class _AppShellState extends State<AppShell> {
   late final SubjectRepository _subjectRepository;
   late final ProfileRepository _profileRepository;
   late final SessionRepository _sessionRepository;
+  late final ScheduleRepository _scheduleRepository;
 
   // Danh mục môn học đồng bộ từ SQLite hoặc Web preview
   List<Subject> _subjects = [];
 
   // Danh sách công việc được đồng bộ từ SQLite hoặc Web preview
   List<StudyTask> _tasks = [];
+
+  // Danh sách lịch học cố định theo tuần (Phase 4.3)
+  List<ClassSchedule> _schedules = [];
 
   // Danh sách ngày học tập ghi nhận (Study Streak)
   Set<String> _activeDates = {};
@@ -121,6 +129,9 @@ class _AppShellState extends State<AppShell> {
     _sessionRepository =
         widget.sessionRepository ??
         SessionRepository(useWebPreview: _taskRepository.isWebPreview);
+    _scheduleRepository =
+        widget.scheduleRepository ??
+        ScheduleRepository(useWebPreview: _taskRepository.isWebPreview);
     _ownsTimerEngine = widget.timerEngine == null;
     _timerEngine =
         widget.timerEngine ??
@@ -134,9 +145,8 @@ class _AppShellState extends State<AppShell> {
         widget.notificationCoordinator ??
         StudyNotificationCoordinator.createDefault(
           initialProfile: _userProfile,
-          scheduleSlotsProvider: () {
-            return const <ScheduledStudySlot>[];
-          },
+          scheduleSlotsProvider: _generateUpcomingStudySlots,
+          tasksProvider: () => _tasks,
           onAlarmStartStudyRequested: _handleAlarmStartStudyRequested,
         );
     _notificationCoordinator.bindTimerEngine(_timerEngine);
@@ -146,6 +156,7 @@ class _AppShellState extends State<AppShell> {
       taskRepository: _taskRepository,
       subjectRepository: _subjectRepository,
       profileRepository: _profileRepository,
+      scheduleRepository: _scheduleRepository,
       dbHelper: _taskRepository.isWebPreview ? null : DatabaseHelper.instance,
     );
     _loadData();
@@ -240,6 +251,7 @@ class _AppShellState extends State<AppShell> {
       final activitiesFuture = _taskRepository.getAllActivities();
       final profileFuture = _profileRepository.getProfile();
       final sessionsFuture = _sessionRepository.getAllSessions();
+      final schedulesFuture = _scheduleRepository.getAllSchedules();
 
       final results = await Future.wait([
         subjectsFuture,
@@ -248,6 +260,7 @@ class _AppShellState extends State<AppShell> {
         activitiesFuture,
         profileFuture,
         sessionsFuture,
+        schedulesFuture,
       ]);
       final loadedSubjects = results[0] as List<Subject>;
       final loadedTasks = results[1] as List<StudyTask>;
@@ -255,6 +268,7 @@ class _AppShellState extends State<AppShell> {
       final loadedActivities = results[3] as List<StudyActivity>;
       final loadedProfile = results[4] as UserProfile;
       var loadedSessions = results[5] as List<StudySession>;
+      final loadedSchedules = results[6] as List<ClassSchedule>;
 
       if (!_hasCheckedInitialRecovery) {
         _hasCheckedInitialRecovery = true;
@@ -276,6 +290,7 @@ class _AppShellState extends State<AppShell> {
         _activities = loadedActivities;
         _userProfile = loadedProfile;
         _sessions = loadedSessions;
+        _schedules = loadedSchedules;
         _isLoading = false;
       });
       widget.onThemeModeChanged?.call(loadedProfile.flutterThemeMode);
@@ -309,6 +324,7 @@ class _AppShellState extends State<AppShell> {
           _activeDates = WebStreakStorage.loadActiveDates();
           _activities = WebStreakStorage.loadActivities();
           _sessions = WebSessionStorage.loadSessions();
+          _schedules = WebScheduleStorage.loadSchedules();
           _userProfile = webProfile;
           _isLoading = false;
           _errorMessage = null;
@@ -402,6 +418,132 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
+  // --- CÁC HÀM XỬ LÝ LỊCH HỌC TUẦN & THỜI KHÓA BIỂU (Phase 4.3) ---
+
+  List<ScheduledStudySlot> _generateUpcomingStudySlots() {
+    final now = DateTime.now();
+    final slots = <ScheduledStudySlot>[];
+    for (final schedule in _schedules) {
+      if (schedule.isActive) {
+        slots.addAll(
+          schedule.generateUpcomingSlots(fromTime: now, daysAhead: 14),
+        );
+      }
+    }
+    return slots;
+  }
+
+  Future<void> _addSchedule(ClassSchedule schedule) async {
+    try {
+      await _scheduleRepository.insertSchedule(schedule);
+      final updated = await _scheduleRepository.getAllSchedules();
+      if (!mounted) return;
+      setState(() {
+        _schedules = updated;
+      });
+      await _notificationCoordinator.syncSchedules();
+      _showNotification('Đã thêm lịch học: ${schedule.subjectName}');
+    } catch (e) {
+      if (!mounted) return;
+      _showNotification('Lỗi khi thêm lịch học: $e', isError: true);
+    }
+  }
+
+  Future<void> _updateSchedule(ClassSchedule schedule) async {
+    try {
+      await _scheduleRepository.updateSchedule(schedule);
+      final updated = await _scheduleRepository.getAllSchedules();
+      if (!mounted) return;
+      setState(() {
+        _schedules = updated;
+      });
+      await _notificationCoordinator.syncSchedules();
+      _showNotification('Đã cập nhật lịch học: ${schedule.subjectName}');
+    } catch (e) {
+      if (!mounted) return;
+      _showNotification('Lỗi khi cập nhật lịch học: $e', isError: true);
+    }
+  }
+
+  Future<void> _deleteSchedule(ClassSchedule schedule) async {
+    try {
+      await _scheduleRepository.deleteSchedule(schedule.id);
+      final updated = await _scheduleRepository.getAllSchedules();
+      if (!mounted) return;
+      setState(() {
+        _schedules = updated;
+      });
+      await _notificationCoordinator.syncSchedules();
+      _showNotification('Đã xóa lịch học: ${schedule.subjectName}');
+    } catch (e) {
+      if (!mounted) return;
+      _showNotification('Lỗi khi xóa lịch học: $e', isError: true);
+    }
+  }
+
+  Future<void> _toggleScheduleActive(
+    ClassSchedule schedule,
+    bool isActive,
+  ) async {
+    try {
+      await _scheduleRepository.toggleScheduleActive(schedule.id, isActive);
+      final updated = await _scheduleRepository.getAllSchedules();
+      if (!mounted) return;
+      setState(() {
+        _schedules = updated;
+      });
+      await _notificationCoordinator.syncSchedules();
+      _showNotification(
+        isActive
+            ? 'Đã bật lịch học: ${schedule.subjectName}'
+            : 'Đã tắt lịch học: ${schedule.subjectName}',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      _showNotification('Lỗi khi đổi trạng thái lịch: $e', isError: true);
+    }
+  }
+
+  Future<void> _handleImportSchedules({
+    required List<ClassSchedule> schedules,
+    required List<Subject> newSubjects,
+  }) async {
+    try {
+      // 1. Thêm các môn học mới nếu có
+      for (final subject in newSubjects) {
+        await _subjectRepository.insertSubject(subject);
+      }
+      if (newSubjects.isNotEmpty) {
+        final updatedSubjects = await _subjectRepository.getAllSubjects();
+        if (mounted) {
+          setState(() {
+            _subjects = updatedSubjects;
+          });
+        }
+      }
+
+      // 2. Batch insert các lịch học
+      await _scheduleRepository.insertSchedulesBatch(schedules);
+      final updatedSchedules = await _scheduleRepository.getAllSchedules();
+
+      if (!mounted) return;
+      setState(() {
+        _schedules = updatedSchedules;
+      });
+
+      // 3. Đồng bộ lại hệ thống nhắc nhở và báo thức
+      await _notificationCoordinator.syncSchedules();
+
+      _showNotification(
+        'Đã nhập thành công ${schedules.length} lịch học'
+        '${newSubjects.isNotEmpty ? ' và tạo ${newSubjects.length} môn học mới' : ''}.',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      _showNotification('Lỗi khi nhập thời khóa biểu: $e', isError: true);
+    }
+  }
+
   // --- CÁC HÀM XỬ LÝ NGHIỆP VỤ CRUD NHIỆM VỤ (TASK) ---
 
   Future<void> _addTask(StudyTask newTask) async {
@@ -411,6 +553,7 @@ class _AppShellState extends State<AppShell> {
       setState(() {
         _tasks.insert(0, newTask);
       });
+      unawaited(_notificationCoordinator.scheduleTaskDeadline(newTask));
       _showNotification(
         kIsWeb
             ? 'Đã thêm: "${newTask.title}" (Chế độ xem trước Web)'
@@ -432,6 +575,7 @@ class _AppShellState extends State<AppShell> {
           _tasks[index] = updatedTask;
         }
       });
+      unawaited(_notificationCoordinator.scheduleTaskDeadline(updatedTask));
       _showNotification(
         kIsWeb
             ? 'Đã cập nhật: "${updatedTask.title}" (Chế độ xem trước Web)'
@@ -454,6 +598,7 @@ class _AppShellState extends State<AppShell> {
         _tasks.removeWhere((t) => t.id == taskToDelete.id);
         _sessions = updatedSessions;
       });
+      unawaited(_notificationCoordinator.cancelTaskDeadline(taskToDelete.id));
       _showNotification(
         kIsWeb
             ? 'Đã xóa: "${taskToDelete.title}" (Chế độ xem trước Web)'
@@ -575,6 +720,7 @@ class _AppShellState extends State<AppShell> {
 
       // 3. Nếu chuyển sang hoàn thành: Hiển thị thông báo kèm nút "ĐÁNH GIÁ" tiện lợi, không ép buộc
       if (newStatus == TaskStatus.completed) {
+        unawaited(_notificationCoordinator.cancelTaskDeadline(task.id));
         _showNotification(
           kIsWeb
               ? 'Đã hoàn thành! 🎉 (Xem trước Web)'
@@ -584,6 +730,11 @@ class _AppShellState extends State<AppShell> {
           onAction: () => _openAssessmentDialog(task),
         );
       } else {
+        unawaited(
+          _notificationCoordinator.scheduleTaskDeadline(
+            task.copyWith(status: newStatus),
+          ),
+        );
         _showNotification('Đã chuyển về Chưa làm');
       }
     } catch (e) {
@@ -1162,13 +1313,18 @@ class _AppShellState extends State<AppShell> {
           if (kIsWeb)
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              color: context.primaryContainerColor,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+              decoration: BoxDecoration(
+                color: context.primaryContainerColor,
+                border: Border(
+                  bottom: BorderSide(color: context.borderColor, width: 0.8),
+                ),
+              ),
               child: Row(
                 children: [
                   Icon(
                     Icons.info_outline_rounded,
-                    size: 16,
+                    size: 15,
                     color: context.onPrimaryContainerColor,
                   ),
                   const SizedBox(width: 8),
@@ -1178,7 +1334,7 @@ class _AppShellState extends State<AppShell> {
                       style: TextStyle(
                         fontSize: 12,
                         color: context.onPrimaryContainerColor,
-                        fontWeight: FontWeight.w600,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ),
@@ -1369,6 +1525,7 @@ class _AppShellState extends State<AppShell> {
         tasks: _tasks,
         subjects: _subjects,
         sessions: _sessions,
+        schedules: _schedules,
         onToggleComplete: _toggleTaskComplete,
         onTapTask: _openTaskDetail,
         onEditTask: (task) => _openTaskForm(initialTask: task),
@@ -1376,6 +1533,11 @@ class _AppShellState extends State<AppShell> {
         onAddTask: () => _openTaskForm(),
         onStartStudy: _handleStartStudyWithTask,
         onReschedule: _handleRescheduleTask,
+        onAddSchedule: _addSchedule,
+        onEditSchedule: _updateSchedule,
+        onDeleteSchedule: _deleteSchedule,
+        onToggleScheduleActive: _toggleScheduleActive,
+        onImportSchedules: _handleImportSchedules,
       ),
       SubjectsScreen(
         subjects: _subjects,

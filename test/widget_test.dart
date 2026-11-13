@@ -46,6 +46,8 @@ void main() {
       )
     ''');
 
+    await DatabaseHelper.createClassSchedulesTable(db);
+
     DatabaseHelper.instance.setDatabaseForTesting(db);
     taskRepo = TaskRepository(dbHelper: DatabaseHelper.instance);
     subjectRepo = SubjectRepository(dbHelper: DatabaseHelper.instance);

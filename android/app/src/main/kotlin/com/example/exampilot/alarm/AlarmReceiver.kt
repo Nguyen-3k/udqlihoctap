@@ -11,6 +11,7 @@ import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -43,6 +44,142 @@ class AlarmReceiver : BroadcastReceiver() {
             try {
                 val nm = context.applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
                 nm?.cancel(alarmId)
+                Log.i(TAG, "Fallback notification cancelled for alarmId=$alarmId")
+            } catch (_: Throwable) {
+            }
+        }
+
+        fun ensureFallbackChannel(context: Context) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+            if (manager.getNotificationChannel(FALLBACK_CHANNEL_ID) != null) return
+
+            val soundUri: Uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+
+            val channel = NotificationChannel(
+                FALLBACK_CHANNEL_ID,
+                "Báo thức học tập (Khẩn cấp)",
+                NotificationManager.IMPORTANCE_HIGH,
+            ).apply {
+                description = "Thông báo khẩn khi báo thức đến giờ học"
+                setSound(
+                    soundUri,
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build(),
+                )
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 500, 600, 500, 800)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            }
+            manager.createNotificationChannel(channel)
+        }
+
+        fun postFallbackAlarmNotification(context: Context, record: AlarmStorage.NativeAlarmRecord) {
+            try {
+                ensureFallbackChannel(context)
+                val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+
+                val openIntent = Intent(context, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    putExtra("alarmKey", record.alarmKey)
+                    putExtra("alarmAction", "open")
+                }
+                val safeId = record.alarmId and 0x3fffffff
+                val openPending = PendingIntent.getActivity(
+                    context,
+                    safeId + 1,
+                    openIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                )
+
+                val dismissIntent = Intent(context, AlarmActionReceiver::class.java).apply {
+                    action = AlarmActionReceiver.ACTION_DISMISS
+                    putExtra(AlarmForegroundService.EXTRA_ALARM_KEY, record.alarmKey)
+                    putExtra(AlarmForegroundService.EXTRA_ALARM_ID, record.alarmId)
+                }
+                val dismissPending = PendingIntent.getBroadcast(
+                    context,
+                    safeId + 2,
+                    dismissIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                )
+
+                val startIntent = Intent(context, AlarmActionReceiver::class.java).apply {
+                    action = AlarmActionReceiver.ACTION_START_STUDY
+                    putExtra(AlarmForegroundService.EXTRA_ALARM_KEY, record.alarmKey)
+                    putExtra(AlarmForegroundService.EXTRA_ALARM_ID, record.alarmId)
+                }
+                val startPending = PendingIntent.getBroadcast(
+                    context,
+                    safeId + 3,
+                    startIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                )
+
+                val bodyText = if (!record.taskTitle.isNullOrBlank()) {
+                    "${record.taskTitle} • Báo thức đang reo!"
+                } else {
+                    "Đã đến giờ học tập theo kế hoạch • Báo thức đang reo!"
+                }
+
+                val builder = NotificationCompat.Builder(context, FALLBACK_CHANNEL_ID)
+                    .setSmallIcon(R.mipmap.ic_launcher)
+                    .setContentTitle("Báo thức học tập: ${record.title}")
+                    .setContentText(bodyText)
+                    .setPriority(NotificationCompat.PRIORITY_MAX)
+                    .setCategory(NotificationCompat.CATEGORY_ALARM)
+                    .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                    .setOngoing(true)
+                    .setAutoCancel(false)
+                    .setContentIntent(openPending)
+                    .setFullScreenIntent(openPending, true)
+                    .addAction(0, "Tắt", dismissPending)
+                    .addAction(0, "Vào học", startPending)
+
+                if (record.snoozeCount == 0) {
+                    val snoozeIntent = Intent(context, AlarmActionReceiver::class.java).apply {
+                        action = AlarmActionReceiver.ACTION_SNOOZE
+                        putExtra(AlarmForegroundService.EXTRA_ALARM_KEY, record.alarmKey)
+                        putExtra(AlarmForegroundService.EXTRA_ALARM_ID, record.alarmId)
+                    }
+                    val snoozePending = PendingIntent.getBroadcast(
+                        context,
+                        safeId + 4,
+                        snoozeIntent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                    )
+                    builder.addAction(0, "Nhắc lại 5p", snoozePending)
+                }
+
+                manager.notify(record.alarmId, builder.build())
+                triggerFallbackVibration(context)
+                Log.i(TAG, "4-fallback. Fallback notification posted successfully for alarmId=${record.alarmId}")
+            } catch (e: Throwable) {
+                Log.e(TAG, "4-fallback. Failed posting fallback notification: ${e.message}", e)
+            }
+        }
+
+        private fun triggerFallbackVibration(context: Context) {
+            try {
+                val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                    vm?.defaultVibrator
+                } else {
+                    @Suppress("DEPRECATION")
+                    context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+                }
+                if (vibrator?.hasVibrator() == true) {
+                    val pattern = longArrayOf(0, 500, 600, 500, 800)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
+                    } else {
+                        @Suppress("DEPRECATION")
+                        vibrator.vibrate(pattern, -1)
+                    }
+                }
             } catch (_: Throwable) {
             }
         }
@@ -50,14 +187,28 @@ class AlarmReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val appContext = context.applicationContext
-        Log.i(TAG, "AlarmReceiver.onReceive triggered. Action=${intent.action}")
+        Log.i(TAG, "4. AlarmReceiver.onReceive triggered. Action=${intent.action}, now=${System.currentTimeMillis()}")
 
-        val alarmKey = intent.getStringExtra(EXTRA_ALARM_KEY) ?: return
+        // Giữ WakeLock ngắn (15s) bảo đảm CPU không ngủ gật trong lúc Service khởi động
+        var receiverWakeLock: PowerManager.WakeLock? = null
+        try {
+            val pm = appContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            receiverWakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ExamPilot:AlarmReceiverWakeLock")
+            receiverWakeLock?.acquire(15000L)
+        } catch (_: Throwable) {
+        }
+
+        val alarmKey = intent.getStringExtra(EXTRA_ALARM_KEY)
+        if (alarmKey == null) {
+            Log.e(TAG, "4. AlarmReceiver received intent without EXTRA_ALARM_KEY!")
+            try { receiverWakeLock?.release() } catch (_: Throwable) {}
+            return
+        }
         val alarmId = intent.getIntExtra(EXTRA_ALARM_ID, alarmKey.hashCode() and 0x7fffffff)
 
         var existing = AlarmStorage.getByKey(appContext, alarmKey)
         if (existing == null) {
-            Log.w(TAG, "Alarm key '$alarmKey' not in storage, reconstructing from intent extras")
+            Log.w(TAG, "4. Alarm key '$alarmKey' not in storage, reconstructing from intent extras")
             val title = intent.getStringExtra(EXTRA_TITLE) ?: "Đến giờ học tập"
             val taskTitle = intent.getStringExtra(EXTRA_TASK_TITLE)
             val soundId = intent.getStringExtra(EXTRA_SOUND_ID) ?: "alarm_dawn"
@@ -81,7 +232,8 @@ class AlarmReceiver : BroadcastReceiver() {
         if (existing.status != AlarmStorage.STATUS_SCHEDULED &&
             existing.status != AlarmStorage.STATUS_SNOOZED
         ) {
-            Log.i(TAG, "Skipping alarm '$alarmKey' because status is ${existing.status}")
+            Log.i(TAG, "4. Skipping alarm '$alarmKey' because status is already '${existing.status}'")
+            try { receiverWakeLock?.release() } catch (_: Throwable) {}
             return
         }
 
@@ -93,153 +245,18 @@ class AlarmReceiver : BroadcastReceiver() {
         AlarmEventBus.emit(ringing)
 
         // Khởi động AlarmForegroundService để duy trì looping audio + vibration
-        var serviceStarted = false
+        var serviceRequested = false
         try {
             AlarmForegroundService.start(appContext, ringing)
-            serviceStarted = true
-            Log.i(TAG, "AlarmForegroundService successfully requested for '$alarmKey'")
+            serviceRequested = true
+            Log.i(TAG, "4a. AlarmForegroundService.start requested for '${ringing.alarmKey}'")
         } catch (t: Throwable) {
-            Log.e(TAG, "AlarmForegroundService.start failed: ${t.message}. Triggering fallback notification.", t)
+            Log.e(TAG, "4a. AlarmForegroundService.start failed synchronously: ${t.message}. Firing immediate fallback notification.", t)
         }
 
-        // Fallback: nếu Background Foreground Service bị OS chặn (ForegroundServiceStartNotAllowedException...),
-        // trực tiếp bắn Heads-up Notification khẩn cấp kèm chuông và rung từ NotificationManager!
-        if (!serviceStarted) {
+        // Fallback: nếu lệnh startService ném exception ngay lập tức
+        if (!serviceRequested) {
             postFallbackAlarmNotification(appContext, ringing)
-        }
-    }
-
-    private fun ensureFallbackChannel(context: Context) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
-        if (manager.getNotificationChannel(FALLBACK_CHANNEL_ID) != null) return
-
-        val soundUri: Uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-
-        val channel = NotificationChannel(
-            FALLBACK_CHANNEL_ID,
-            "Báo thức học tập (Khẩn cấp)",
-            NotificationManager.IMPORTANCE_HIGH,
-        ).apply {
-            description = "Thông báo khẩn khi báo thức đến giờ học"
-            setSound(
-                soundUri,
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ALARM)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build(),
-            )
-            enableVibration(true)
-            vibrationPattern = longArrayOf(0, 500, 600, 500, 800)
-            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-        }
-        manager.createNotificationChannel(channel)
-    }
-
-    private fun postFallbackAlarmNotification(context: Context, record: AlarmStorage.NativeAlarmRecord) {
-        try {
-            ensureFallbackChannel(context)
-            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
-
-            val openIntent = Intent(context, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                putExtra("alarmKey", record.alarmKey)
-                putExtra("alarmAction", "open")
-            }
-            val openPending = PendingIntent.getActivity(
-                context,
-                record.alarmId + 1,
-                openIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            )
-
-            val dismissIntent = Intent(context, AlarmActionReceiver::class.java).apply {
-                action = AlarmActionReceiver.ACTION_DISMISS
-                putExtra(AlarmForegroundService.EXTRA_ALARM_KEY, record.alarmKey)
-                putExtra(AlarmForegroundService.EXTRA_ALARM_ID, record.alarmId)
-            }
-            val dismissPending = PendingIntent.getBroadcast(
-                context,
-                record.alarmId + 2,
-                dismissIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            )
-
-            val startIntent = Intent(context, AlarmActionReceiver::class.java).apply {
-                action = AlarmActionReceiver.ACTION_START_STUDY
-                putExtra(AlarmForegroundService.EXTRA_ALARM_KEY, record.alarmKey)
-                putExtra(AlarmForegroundService.EXTRA_ALARM_ID, record.alarmId)
-            }
-            val startPending = PendingIntent.getBroadcast(
-                context,
-                record.alarmId + 3,
-                startIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            )
-
-            val bodyText = if (!record.taskTitle.isNullOrBlank()) {
-                "${record.taskTitle} • Báo thức đang reo!"
-            } else {
-                "Đã đến giờ học tập theo kế hoạch • Báo thức đang reo!"
-            }
-
-            val builder = NotificationCompat.Builder(context, FALLBACK_CHANNEL_ID)
-                .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle("Báo thức học tập: ${record.title}")
-                .setContentText(bodyText)
-                .setPriority(NotificationCompat.PRIORITY_MAX)
-                .setCategory(NotificationCompat.CATEGORY_ALARM)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .setOngoing(true)
-                .setAutoCancel(false)
-                .setContentIntent(openPending)
-                .setFullScreenIntent(openPending, true)
-                .addAction(0, "Tắt", dismissPending)
-                .addAction(0, "Vào học", startPending)
-
-            if (record.snoozeCount == 0) {
-                val snoozeIntent = Intent(context, AlarmActionReceiver::class.java).apply {
-                    action = AlarmActionReceiver.ACTION_SNOOZE
-                    putExtra(AlarmForegroundService.EXTRA_ALARM_KEY, record.alarmKey)
-                    putExtra(AlarmForegroundService.EXTRA_ALARM_ID, record.alarmId)
-                }
-                val snoozePending = PendingIntent.getBroadcast(
-                    context,
-                    record.alarmId + 4,
-                    snoozeIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-                )
-                builder.addAction(0, "Nhắc lại 5p", snoozePending)
-            }
-
-            manager.notify(record.alarmId, builder.build())
-            triggerFallbackVibration(context)
-            Log.i(TAG, "Fallback notification posted successfully for alarmId=${record.alarmId}")
-        } catch (e: Throwable) {
-            Log.e(TAG, "Failed posting fallback notification: ${e.message}", e)
-        }
-    }
-
-    private fun triggerFallbackVibration(context: Context) {
-        try {
-            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
-                vm?.defaultVibrator
-            } else {
-                @Suppress("DEPRECATION")
-                context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-            }
-            if (vibrator?.hasVibrator() == true) {
-                val pattern = longArrayOf(0, 500, 600, 500, 800)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
-                } else {
-                    @Suppress("DEPRECATION")
-                    vibrator.vibrate(pattern, -1)
-                }
-            }
-        } catch (_: Throwable) {
         }
     }
 }

@@ -70,9 +70,10 @@ object AlarmSchedulerNative {
         val launchIntent = Intent(context.applicationContext, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
+        val safeRequestCode = (alarmId and 0x3fffffff) + 100000
         return PendingIntent.getActivity(
             context.applicationContext,
-            alarmId + 100000,
+            safeRequestCode,
             launchIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -92,13 +93,13 @@ object AlarmSchedulerNative {
         val triggerAt = record.effectiveTriggerMillis
         val now = System.currentTimeMillis()
         if (triggerAt <= now) {
-            Log.w(TAG, "Trigger time $triggerAt is in past (now=$now), skipping schedule for key=${record.alarmKey}")
-            return canScheduleExactAlarms(appContext)
+            Log.w(TAG, "3. Trigger time $triggerAt is in past (now=$now), cannot schedule alarm for key=${record.alarmKey}")
+            return false
         }
 
         val manager = appContext.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
         if (manager == null) {
-            Log.e(TAG, "AlarmManager service not available")
+            Log.e(TAG, "3. AlarmManager service not available")
             return false
         }
 
@@ -107,14 +108,14 @@ object AlarmSchedulerNative {
         manager.cancel(pending)
 
         val exactGranted = canScheduleExactAlarms(appContext)
-        Log.i(TAG, "Scheduling alarm '${record.alarmKey}' (id=${record.alarmId}) at $triggerAt (in ${(triggerAt - now)/1000}s). ExactGranted=$exactGranted")
+        Log.i(TAG, "3. Scheduling alarm '${record.alarmKey}' (id=${record.alarmId}) at $triggerAt (in ${(triggerAt - now)/1000}s). ExactGranted=$exactGranted")
 
         return try {
             if (exactGranted) {
                 val showIntent = buildShowAppPendingIntent(appContext, record.alarmId)
                 val info = AlarmManager.AlarmClockInfo(triggerAt, showIntent)
                 manager.setAlarmClock(info, pending)
-                Log.i(TAG, "Alarm '${record.alarmKey}' scheduled via setAlarmClock successfully.")
+                Log.i(TAG, "3a. AlarmSchedulerNative: AlarmManager.setAlarmClock registered successfully for '${record.alarmKey}' at $triggerAt")
                 true
             } else {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -122,11 +123,11 @@ object AlarmSchedulerNative {
                 } else {
                     manager.set(AlarmManager.RTC_WAKEUP, triggerAt, pending)
                 }
-                Log.w(TAG, "Alarm '${record.alarmKey}' scheduled via setAndAllowWhileIdle (inexact fallback).")
+                Log.w(TAG, "3b. AlarmSchedulerNative: AlarmManager.setAndAllowWhileIdle registered (inexact fallback) for '${record.alarmKey}'")
                 false
             }
         } catch (e: SecurityException) {
-            Log.w(TAG, "SecurityException scheduling exact alarm, falling back to setAndAllowWhileIdle: ${e.message}")
+            Log.w(TAG, "3. SecurityException scheduling exact alarm, falling back to setAndAllowWhileIdle: ${e.message}")
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
@@ -134,7 +135,7 @@ object AlarmSchedulerNative {
                     manager.set(AlarmManager.RTC_WAKEUP, triggerAt, pending)
                 }
             } catch (t: Throwable) {
-                Log.e(TAG, "Fallback scheduling failed: ${t.message}", t)
+                Log.e(TAG, "3. Fallback scheduling failed: ${t.message}", t)
             }
             false
         }
