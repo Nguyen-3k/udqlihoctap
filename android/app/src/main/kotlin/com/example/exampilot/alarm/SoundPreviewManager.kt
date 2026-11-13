@@ -30,57 +30,62 @@ class SoundPreviewManager(private val context: Context) {
             return
         }
 
-        try {
-            val uri: Uri = if (isAlarmGroup) {
-                RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                    ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-                    ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-            } else {
-                RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-                    ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-            } ?: run {
-                onCompleted()
-                return
-            }
-
-            val mediaPlayer = MediaPlayer().apply {
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(
-                            if (isAlarmGroup) {
-                                AudioAttributes.USAGE_ALARM
-                            } else {
-                                AudioAttributes.USAGE_NOTIFICATION
-                            },
-                        )
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build(),
-                )
-                setDataSource(context.applicationContext, uri)
-                isLooping = false
-                setOnCompletionListener {
-                    stopPreview()
-                    onCompleted()
-                }
-                prepare()
-                start()
-            }
-            player = mediaPlayer
-            currentSoundId = soundId
-
-            // Giới hạn tối đa 4 giây nếu thiết bị dùng âm alarm mặc định lặp dài trên một số ROM
-            val stopper = Runnable {
-                if (currentSoundId == soundId) {
-                    stopPreview()
-                    onCompleted()
-                }
-            }
-            autoStopRunnable = stopper
-            mainHandler.postDelayed(stopper, 4000L)
-        } catch (_: Throwable) {
-            stopPreview()
-            onCompleted()
+        val candidateUris = mutableListOf<Uri>()
+        if (isAlarmGroup) {
+            try { RingtoneManager.getActualDefaultRingtoneUri(context.applicationContext, RingtoneManager.TYPE_ALARM)?.let { candidateUris.add(it) } } catch (_: Throwable) {}
+            try { RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)?.let { if (!candidateUris.contains(it)) candidateUris.add(it) } } catch (_: Throwable) {}
+            try { RingtoneManager.getActualDefaultRingtoneUri(context.applicationContext, RingtoneManager.TYPE_NOTIFICATION)?.let { if (!candidateUris.contains(it)) candidateUris.add(it) } } catch (_: Throwable) {}
+            try { RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)?.let { if (!candidateUris.contains(it)) candidateUris.add(it) } } catch (_: Throwable) {}
+            try { RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)?.let { if (!candidateUris.contains(it)) candidateUris.add(it) } } catch (_: Throwable) {}
+        } else {
+            try { RingtoneManager.getActualDefaultRingtoneUri(context.applicationContext, RingtoneManager.TYPE_NOTIFICATION)?.let { candidateUris.add(it) } } catch (_: Throwable) {}
+            try { RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)?.let { if (!candidateUris.contains(it)) candidateUris.add(it) } } catch (_: Throwable) {}
+            try { RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)?.let { if (!candidateUris.contains(it)) candidateUris.add(it) } } catch (_: Throwable) {}
+            try { RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)?.let { if (!candidateUris.contains(it)) candidateUris.add(it) } } catch (_: Throwable) {}
         }
+
+        for (uri in candidateUris) {
+            try {
+                val mediaPlayer = MediaPlayer().apply {
+                    setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(
+                                if (isAlarmGroup) {
+                                    AudioAttributes.USAGE_ALARM
+                                } else {
+                                    AudioAttributes.USAGE_NOTIFICATION
+                                },
+                            )
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .build(),
+                    )
+                    setDataSource(context.applicationContext, uri)
+                    isLooping = false
+                    setOnCompletionListener {
+                        stopPreview()
+                        onCompleted()
+                    }
+                    prepare()
+                    start()
+                }
+                player = mediaPlayer
+                currentSoundId = soundId
+
+                // Giới hạn tối đa 4 giây nếu thiết bị dùng âm alarm mặc định lặp dài trên một số ROM
+                val stopper = Runnable {
+                    if (currentSoundId == soundId) {
+                        stopPreview()
+                        onCompleted()
+                    }
+                }
+                autoStopRunnable = stopper
+                mainHandler.postDelayed(stopper, 4000L)
+                return
+            } catch (_: Throwable) {
+                stopPreview()
+            }
+        }
+        onCompleted()
     }
 
     fun stopPreview() {

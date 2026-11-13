@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../models/study_session.dart';
 import '../models/study_task.dart';
 import '../models/subject.dart';
 import '../models/task_status.dart';
@@ -24,21 +25,27 @@ enum TaskSortOption {
 class PlanScreen extends StatefulWidget {
   final List<StudyTask> tasks;
   final List<Subject>? subjects;
+  final List<StudySession>? sessions;
   final ValueChanged<StudyTask> onToggleComplete;
   final ValueChanged<StudyTask> onTapTask;
   final ValueChanged<StudyTask> onEditTask;
   final ValueChanged<StudyTask> onDeleteTask;
   final VoidCallback onAddTask;
+  final ValueChanged<StudyTask>? onStartStudy;
+  final ValueChanged<StudyTask>? onReschedule;
 
   const PlanScreen({
     super.key,
     required this.tasks,
     this.subjects,
+    this.sessions,
     required this.onToggleComplete,
     required this.onTapTask,
     required this.onEditTask,
     required this.onDeleteTask,
     required this.onAddTask,
+    this.onStartStudy,
+    this.onReschedule,
   });
 
   @override
@@ -496,10 +503,23 @@ class _PlanScreenState extends State<PlanScreen> {
             ...filteredTasks.map(
               (task) => TaskCard(
                 task: task,
+                accumulatedStudySeconds: widget.sessions
+                    ?.where(
+                      (s) =>
+                          s.taskId == task.id &&
+                          s.status == StudySessionStatus.completed,
+                    )
+                    .fold<int>(0, (sum, s) => sum + s.verifiedStudySeconds),
                 onToggleComplete: (_) => widget.onToggleComplete(task),
                 onTap: () => widget.onTapTask(task),
                 onEdit: () => widget.onEditTask(task),
                 onDelete: () => widget.onDeleteTask(task),
+                onStartStudy: widget.onStartStudy != null
+                    ? () => widget.onStartStudy!(task)
+                    : null,
+                onReschedule: widget.onReschedule != null
+                    ? () => widget.onReschedule!(task)
+                    : null,
               ),
             ),
             const SizedBox(height: 20),

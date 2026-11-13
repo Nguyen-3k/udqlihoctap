@@ -23,7 +23,7 @@ class OverviewScreen extends StatelessWidget {
   final StudyStreak studyStreak;
   final int legacyActiveDatesCount;
   final UserProfile userProfile;
-  final List<StudySession> sessions;
+  final List<StudySession>? sessions;
   final StudyTimerEngine? timerEngine;
   final VoidCallback? onOpenTimer;
   final ValueChanged<StudyTask> onToggleComplete;
@@ -34,6 +34,8 @@ class OverviewScreen extends StatelessWidget {
   final VoidCallback onGoToPlan;
   final VoidCallback? onGoToSubjects;
   final VoidCallback? onGoToProfile;
+  final ValueChanged<StudyTask>? onStartStudy;
+  final ValueChanged<StudyTask>? onReschedule;
 
   const OverviewScreen({
     super.key,
@@ -41,7 +43,7 @@ class OverviewScreen extends StatelessWidget {
     required this.studyStreak,
     this.legacyActiveDatesCount = 0,
     this.userProfile = const UserProfile(),
-    this.sessions = const [],
+    this.sessions,
     this.timerEngine,
     this.onOpenTimer,
     required this.onToggleComplete,
@@ -52,6 +54,8 @@ class OverviewScreen extends StatelessWidget {
     required this.onGoToPlan,
     this.onGoToSubjects,
     this.onGoToProfile,
+    this.onStartStudy,
+    this.onReschedule,
   });
 
   static bool _isSameDay(DateTime a, DateTime b) {
@@ -172,7 +176,7 @@ class OverviewScreen extends StatelessWidget {
           // B2. Tóm tắt Mục tiêu học tuần này (theo dữ liệu Timer G8.8 Phase 1)
           WeeklyGoalSummaryCard(
             profile: userProfile,
-            sessions: sessions,
+            sessions: sessions ?? const [],
             now: now,
             onTapConfigure: onGoToProfile,
           ),
@@ -393,10 +397,23 @@ class OverviewScreen extends StatelessWidget {
                 .map(
                   (task) => TaskCard(
                     task: task,
+                    accumulatedStudySeconds: sessions
+                        ?.where(
+                          (s) =>
+                              s.taskId == task.id &&
+                              s.status == StudySessionStatus.completed,
+                        )
+                        .fold<int>(0, (sum, s) => sum + s.verifiedStudySeconds),
                     onToggleComplete: (_) => onToggleComplete(task),
                     onTap: () => onTapTask(task),
                     onEdit: () => onEditTask(task),
                     onDelete: () => onDeleteTask(task),
+                    onStartStudy: onStartStudy != null
+                        ? () => onStartStudy!(task)
+                        : null,
+                    onReschedule: onReschedule != null
+                        ? () => onReschedule!(task)
+                        : null,
                   ),
                 ),
 

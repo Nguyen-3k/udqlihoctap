@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.util.Log
 import com.example.exampilot.MainActivity
 
 /**
@@ -15,6 +16,7 @@ import com.example.exampilot.MainActivity
  *   tuyệt đối không crash ứng dụng vì SecurityException.
  */
 object AlarmSchedulerNative {
+    private const val TAG = "ExamPilotAlarm"
 
     fun canScheduleExactAlarms(context: Context): Boolean {
         val manager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return false
@@ -23,6 +25,27 @@ object AlarmSchedulerNative {
         } else {
             true
         }
+    }
+
+    private fun buildTriggerPendingIntent(
+        context: Context,
+        record: AlarmStorage.NativeAlarmRecord,
+    ): PendingIntent {
+        val intent = Intent(context.applicationContext, AlarmReceiver::class.java).apply {
+            action = AlarmReceiver.ACTION_TRIGGER_ALARM
+            putExtra(AlarmReceiver.EXTRA_ALARM_KEY, record.alarmKey)
+            putExtra(AlarmReceiver.EXTRA_ALARM_ID, record.alarmId)
+            putExtra(AlarmReceiver.EXTRA_TITLE, record.title)
+            putExtra(AlarmReceiver.EXTRA_TASK_TITLE, record.taskTitle)
+            putExtra(AlarmReceiver.EXTRA_SOUND_ID, record.soundId)
+            putExtra(AlarmReceiver.EXTRA_SCHEDULED_AT, record.scheduledAtMillis)
+        }
+        return PendingIntent.getBroadcast(
+            context.applicationContext,
+            record.alarmId,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
     }
 
     private fun buildTriggerPendingIntent(
@@ -67,21 +90,31 @@ object AlarmSchedulerNative {
         AlarmStorage.upsert(appContext, record)
 
         val triggerAt = record.effectiveTriggerMillis
-        if (triggerAt <= System.currentTimeMillis()) {
+        val now = System.currentTimeMillis()
+        if (triggerAt <= now) {
+            Log.w(TAG, "Trigger time $triggerAt is in past (now=$now), skipping schedule for key=${record.alarmKey}")
             return canScheduleExactAlarms(appContext)
         }
 
-        val manager = appContext.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return false
-        val pending = buildTriggerPendingIntent(appContext, record.alarmKey, record.alarmId)
+        val manager = appContext.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+        if (manager == null) {
+            Log.e(TAG, "AlarmManager service not available")
+            return false
+        }
+
+        val pending = buildTriggerPendingIntent(appContext, record)
         // Chống trùng: hủy PendingIntent cũ cùng alarmId trước khi đăng ký mới
         manager.cancel(pending)
 
         val exactGranted = canScheduleExactAlarms(appContext)
+        Log.i(TAG, "Scheduling alarm '${record.alarmKey}' (id=${record.alarmId}) at $triggerAt (in ${(triggerAt - now)/1000}s). ExactGranted=$exactGranted")
+
         return try {
             if (exactGranted) {
                 val showIntent = buildShowAppPendingIntent(appContext, record.alarmId)
                 val info = AlarmManager.AlarmClockInfo(triggerAt, showIntent)
                 manager.setAlarmClock(info, pending)
+                Log.i(TAG, "Alarm '${record.alarmKey}' scheduled via setAlarmClock successfully.")
                 true
             } else {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -89,16 +122,19 @@ object AlarmSchedulerNative {
                 } else {
                     manager.set(AlarmManager.RTC_WAKEUP, triggerAt, pending)
                 }
+                Log.w(TAG, "Alarm '${record.alarmKey}' scheduled via setAndAllowWhileIdle (inexact fallback).")
                 false
             }
-        } catch (_: SecurityException) {
+        } catch (e: SecurityException) {
+            Log.w(TAG, "SecurityException scheduling exact alarm, falling back to setAndAllowWhileIdle: ${e.message}")
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
                 } else {
                     manager.set(AlarmManager.RTC_WAKEUP, triggerAt, pending)
                 }
-            } catch (_: Throwable) {
+            } catch (t: Throwable) {
+                Log.e(TAG, "Fallback scheduling failed: ${t.message}", t)
             }
             false
         }

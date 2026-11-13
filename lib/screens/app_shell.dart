@@ -134,6 +134,9 @@ class _AppShellState extends State<AppShell> {
         widget.notificationCoordinator ??
         StudyNotificationCoordinator.createDefault(
           initialProfile: _userProfile,
+          scheduleSlotsProvider: () {
+            return const <ScheduledStudySlot>[];
+          },
           onAlarmStartStudyRequested: _handleAlarmStartStudyRequested,
         );
     _notificationCoordinator.bindTimerEngine(_timerEngine);
@@ -462,8 +465,93 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
+  int _getVerifiedSecondsForTask(String taskId) {
+    if (taskId.isEmpty) return 0;
+    return _sessions
+        .where(
+          (s) => s.taskId == taskId && s.status == StudySessionStatus.completed,
+        )
+        .fold<int>(0, (sum, s) => sum + s.verifiedStudySeconds);
+  }
+
+  void _handleStartStudyWithTask(StudyTask task) {
+    final matchingSubject = _subjects
+        .where(
+          (s) =>
+              (task.subjectId.isNotEmpty && s.id == task.subjectId) ||
+              s.name == task.subject,
+        )
+        .firstOrNull;
+    _openStudyTimer(initialSubject: matchingSubject, initialTask: task);
+  }
+
+  Future<void> _handleRescheduleTask(StudyTask task) async {
+    final now = DateTime.now();
+    final initialDate = task.deadline != null && task.deadline!.isAfter(now)
+        ? task.deadline!
+        : now.add(const Duration(days: 1));
+
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 365 * 2)),
+      helpText: 'Chọn hạn hoàn thành mới (Chuyển lịch)',
+    );
+
+    if (pickedDate == null || !mounted) return;
+
+    final initialTime = task.deadline != null
+        ? TimeOfDay.fromDateTime(task.deadline!)
+        : const TimeOfDay(hour: 23, minute: 59);
+
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime: initialTime,
+      helpText: 'Chọn giờ hạn hoàn thành mới',
+    );
+
+    if (!mounted) return;
+
+    final finalHour = pickedTime?.hour ?? initialTime.hour;
+    final finalMinute = pickedTime?.minute ?? initialTime.minute;
+    final newDeadline = DateTime(
+      pickedDate.year,
+      pickedDate.month,
+      pickedDate.day,
+      finalHour,
+      finalMinute,
+    );
+
+    final updatedTask = task.copyWith(deadline: newDeadline);
+    await _updateTask(updatedTask);
+    if (!mounted) return;
+    final dayStr = newDeadline.day.toString().padLeft(2, '0');
+    final monthStr = newDeadline.month.toString().padLeft(2, '0');
+    final hourStr = newDeadline.hour.toString().padLeft(2, '0');
+    final minuteStr = newDeadline.minute.toString().padLeft(2, '0');
+    _showNotification(
+      'Đã chuyển lịch "${task.title}" sang $dayStr/$monthStr $hourStr:$minuteStr',
+    );
+  }
+
   Future<void> _toggleTaskComplete(StudyTask task) async {
     final newStatus = task.isCompleted ? TaskStatus.todo : TaskStatus.completed;
+
+    // Phase 4.2 - Quy tắc tối thiểu 15 phút học thực tế đã xác nhận trước khi cho phép hoàn thành
+    if (newStatus == TaskStatus.completed) {
+      final verifiedSecs = _getVerifiedSecondsForTask(task.id);
+      if (verifiedSecs < 900) {
+        final currentMins = verifiedSecs ~/ 60;
+        _showNotification(
+          'Công việc cần tối thiểu 15 phút học thực tế để hoàn thành (hiện có $currentMins/15 phút).',
+          isError: true,
+          actionLabel: 'HỌC NGAY',
+          onAction: () => _handleStartStudyWithTask(task),
+        );
+        return;
+      }
+    }
 
     try {
       // 1. Ghi nhận thay đổi xuống repository/database trước
@@ -625,18 +713,22 @@ class _AppShellState extends State<AppShell> {
               s.name == task.subject,
         )
         .firstOrNull;
+    final verifiedSeconds = _getVerifiedSecondsForTask(task.id);
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => TaskDetailSheet(
         task: task,
+        accumulatedStudySeconds: verifiedSeconds,
         onToggleComplete: () => _toggleTaskComplete(task),
         onEdit: () => _openTaskForm(initialTask: task),
         onDelete: () => _deleteTask(task),
         onAssess: () => _openAssessmentDialog(task),
         onStartTimer: () =>
             _openStudyTimer(initialSubject: matchingSubject, initialTask: task),
+        onStartStudy: () => _handleStartStudyWithTask(task),
+        onReschedule: () => _handleRescheduleTask(task),
       ),
     );
   }
@@ -1270,19 +1362,25 @@ class _AppShellState extends State<AppShell> {
         onGoToPlan: () => setState(() => _selectedIndex = 1),
         onGoToSubjects: () => setState(() => _selectedIndex = 2),
         onGoToProfile: () => setState(() => _selectedIndex = 4),
+        onStartStudy: _handleStartStudyWithTask,
+        onReschedule: _handleRescheduleTask,
       ),
       PlanScreen(
         tasks: _tasks,
         subjects: _subjects,
+        sessions: _sessions,
         onToggleComplete: _toggleTaskComplete,
         onTapTask: _openTaskDetail,
         onEditTask: (task) => _openTaskForm(initialTask: task),
         onDeleteTask: _deleteTask,
         onAddTask: () => _openTaskForm(),
+        onStartStudy: _handleStartStudyWithTask,
+        onReschedule: _handleRescheduleTask,
       ),
       SubjectsScreen(
         subjects: _subjects,
         tasks: _tasks,
+        sessions: _sessions,
         onAddSubject: _addSubject,
         onUpdateSubject: _updateSubject,
         onDeleteSubject: _deleteSubject,
@@ -1294,6 +1392,8 @@ class _AppShellState extends State<AppShell> {
             _openTaskForm(preselectedSubjectId: subject.id),
         onStartTimerForSubject: (subject) =>
             _openStudyTimer(initialSubject: subject),
+        onStartStudyTask: _handleStartStudyWithTask,
+        onRescheduleTask: _handleRescheduleTask,
       ),
       StatisticsScreen(
         tasks: _tasks,
@@ -1325,6 +1425,7 @@ class _AppShellState extends State<AppShell> {
           },
           audioGateway: _notificationCoordinator.audioGateway,
           hasValidScheduleSource: false,
+          onScheduleTestAlarm: () => _notificationCoordinator.scheduleTestAlarm(),
           onResetStudyData: _resetStudyData,
           onResetProfile: _resetProfile,
           onResetSampleData: _resetSampleData,

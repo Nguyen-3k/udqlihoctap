@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../models/study_session.dart';
 import '../models/study_task.dart';
 import '../models/subject.dart';
 import '../theme/app_colors.dart';
@@ -20,11 +21,15 @@ class SubjectsScreen extends StatelessWidget {
   final ValueChanged<StudyTask> onDeleteTask;
   final void Function(Subject subject) onAddTaskForSubject;
   final void Function(Subject subject)? onStartTimerForSubject;
+  final List<StudySession>? sessions;
+  final ValueChanged<StudyTask>? onStartStudyTask;
+  final ValueChanged<StudyTask>? onRescheduleTask;
 
   const SubjectsScreen({
     super.key,
     required this.subjects,
     required this.tasks,
+    this.sessions,
     required this.onAddSubject,
     required this.onUpdateSubject,
     required this.onDeleteSubject,
@@ -34,6 +39,8 @@ class SubjectsScreen extends StatelessWidget {
     required this.onDeleteTask,
     required this.onAddTaskForSubject,
     this.onStartTimerForSubject,
+    this.onStartStudyTask,
+    this.onRescheduleTask,
   });
 
   // Danh mục màu đại diện gợi ý
@@ -444,6 +451,7 @@ class SubjectsScreen extends StatelessWidget {
           subject: subject,
           allSubjects: subjects,
           tasks: tasks,
+          sessions: sessions,
           onToggleComplete: onToggleCompleteTask,
           onTapTask: onTapTask,
           onEditTask: onEditTask,
@@ -459,6 +467,8 @@ class SubjectsScreen extends StatelessWidget {
             Navigator.of(context).pop(); // Đóng màn chi tiết trước
             _confirmDeleteSubject(context, subject);
           },
+          onStartStudy: onStartStudyTask,
+          onReschedule: onRescheduleTask,
         ),
       ),
     );

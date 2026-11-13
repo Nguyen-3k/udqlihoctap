@@ -12,6 +12,11 @@ class TaskCard extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final int? accumulatedStudySeconds;
+  final VoidCallback? onStartStudy;
+  final VoidCallback? onReschedule;
+
+  static const int minStudySecondsToComplete = 900; // 15 phút
 
   const TaskCard({
     super.key,
@@ -20,6 +25,9 @@ class TaskCard extends StatelessWidget {
     required this.onTap,
     required this.onEdit,
     required this.onDelete,
+    this.accumulatedStudySeconds,
+    this.onStartStudy,
+    this.onReschedule,
   });
 
   String _formatDate(DateTime dt) {
@@ -79,6 +87,13 @@ class TaskCard extends StatelessWidget {
     final accentColor = isCompleted
         ? AppColors.statusCompleted
         : task.priority.color;
+    final hasTracking = accumulatedStudySeconds != null;
+    final currentStudySeconds = accumulatedStudySeconds ?? 0;
+    final currentStudyMinutes = currentStudySeconds ~/ 60;
+    final isStudyEligible =
+        isCompleted ||
+        !hasTracking ||
+        currentStudySeconds >= minStudySecondsToComplete;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -116,13 +131,22 @@ class TaskCard extends StatelessWidget {
                               width: 44,
                               height: 44,
                               child: Center(
-                                child: Checkbox(
-                                  value: isCompleted,
-                                  activeColor: AppColors.primary,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(6),
+                                child: Tooltip(
+                                  message: !isStudyEligible
+                                      ? 'Cần học tối thiểu 15 phút thực tế để hoàn thành (hiện có $currentStudyMinutes/15 phút)'
+                                      : (isCompleted
+                                            ? 'Đánh dấu chưa hoàn thành'
+                                            : 'Đánh dấu hoàn thành'),
+                                  child: Checkbox(
+                                    value: isCompleted,
+                                    activeColor: AppColors.primary,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    onChanged: isStudyEligible
+                                        ? onToggleComplete
+                                        : null,
                                   ),
-                                  onChanged: onToggleComplete,
                                 ),
                               ),
                             ),
@@ -206,6 +230,76 @@ class TaskCard extends StatelessWidget {
                                             ),
                                           ),
                                         ),
+
+                                        // Badge Thời lượng học thực tế (Phase 4.2 - Quy tắc 15 phút)
+                                        if (hasTracking && !isCompleted)
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 3,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: isStudyEligible
+                                                  ? AppColors.statusCompleted
+                                                        .withValues(alpha: 0.12)
+                                                  : AppColors.statusInProgress
+                                                        .withValues(
+                                                          alpha: 0.12,
+                                                        ),
+                                              borderRadius:
+                                                  BorderRadius.circular(6),
+                                              border: Border.all(
+                                                color: isStudyEligible
+                                                    ? AppColors.statusCompleted
+                                                          .withValues(
+                                                            alpha: 0.4,
+                                                          )
+                                                    : AppColors.statusInProgress
+                                                          .withValues(
+                                                            alpha: 0.4,
+                                                          ),
+                                                width: 0.8,
+                                              ),
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  isStudyEligible
+                                                      ? Icons
+                                                            .check_circle_outline_rounded
+                                                      : Icons.timer_outlined,
+                                                  size: 13,
+                                                  color: isStudyEligible
+                                                      ? AppColors
+                                                            .statusCompleted
+                                                      : AppColors
+                                                            .statusInProgress,
+                                                ),
+                                                const SizedBox(width: 4),
+                                                Flexible(
+                                                  child: Text(
+                                                    isStudyEligible
+                                                        ? '$currentStudyMinutes/15 phút: đủ điều kiện'
+                                                        : '$currentStudyMinutes/15 phút: chưa đủ điều kiện',
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      color: isStudyEligible
+                                                          ? AppColors
+                                                                .statusCompleted
+                                                          : AppColors
+                                                                .statusInProgress,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                    ),
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
 
                                         // Badge Quá hạn hoặc Sắp đến hạn
                                         if (task.isOverdue)
@@ -403,6 +497,25 @@ class TaskCard extends StatelessWidget {
                                           ),
                                       ],
                                     ),
+                                    if (hasTracking &&
+                                        !isCompleted &&
+                                        !isStudyEligible) ...[
+                                      const SizedBox(height: 6),
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(3),
+                                        child: LinearProgressIndicator(
+                                          value:
+                                              (currentStudySeconds /
+                                                      minStudySecondsToComplete
+                                                          .toDouble())
+                                                  .clamp(0.0, 1.0),
+                                          minHeight: 4,
+                                          backgroundColor:
+                                              context.surfaceMutedColor,
+                                          color: AppColors.statusInProgress,
+                                        ),
+                                      ),
+                                    ],
                                   ],
                                 ),
                               ),
@@ -559,6 +672,100 @@ class TaskCard extends StatelessWidget {
                               ),
                           ],
                         ),
+
+                        // Các thao tác đặc thù Phase 4.2 (Quá hạn -> Học bù & Chuyển lịch; Chưa đủ 15p -> Bắt đầu học)
+                        if (task.isOverdue) ...[
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: FilledButton.tonalIcon(
+                                  key: ValueKey(
+                                    'task_card_makeup_button_${task.id}',
+                                  ),
+                                  style: FilledButton.styleFrom(
+                                    visualDensity: VisualDensity.compact,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 6,
+                                    ),
+                                  ),
+                                  onPressed: onStartStudy,
+                                  icon: const Icon(
+                                    Icons.history_edu_rounded,
+                                    size: 16,
+                                  ),
+                                  label: const Text(
+                                    'Học bù',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  key: ValueKey(
+                                    'task_card_reschedule_button_${task.id}',
+                                  ),
+                                  style: OutlinedButton.styleFrom(
+                                    visualDensity: VisualDensity.compact,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 6,
+                                    ),
+                                  ),
+                                  onPressed: onReschedule,
+                                  icon: const Icon(
+                                    Icons.edit_calendar_rounded,
+                                    size: 16,
+                                  ),
+                                  label: const Text(
+                                    'Chuyển lịch',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ] else if (hasTracking &&
+                            !isCompleted &&
+                            !isStudyEligible &&
+                            onStartStudy != null) ...[
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton.tonalIcon(
+                              key: ValueKey(
+                                'task_card_start_study_button_${task.id}',
+                              ),
+                              style: FilledButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
+                              ),
+                              onPressed: onStartStudy,
+                              icon: const Icon(
+                                Icons.play_arrow_rounded,
+                                size: 16,
+                              ),
+                              label: const Text(
+                                'Bắt đầu học',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),

@@ -335,6 +335,49 @@ class SessionRepository {
     }
   }
 
+  /// Tính tổng thời gian học thực tế đã xác nhận (tính bằng giây) cho một công việc cụ thể.
+  /// Theo quy tắc Phase 4.2:
+  /// - Chỉ tính các phiên học đã hoàn thành (`status == 'completed'`).
+  /// - Không tính thời gian nghỉ (`accumulated_break_seconds`).
+  /// - Không tính phiên chưa hoàn thành hoặc bị gián đoạn chưa xác nhận.
+  /// - Không tính thời gian chỉ gắn môn học mà không gắn công việc.
+  Future<int> getVerifiedStudySecondsForTask(String taskId) async {
+    if (taskId.isEmpty) return 0;
+
+    if (isWebPreview) {
+      final sessions = WebSessionStorage.loadSessions();
+      return sessions
+          .where(
+            (s) =>
+                s.taskId == taskId && s.status == StudySessionStatus.completed,
+          )
+          .fold<int>(0, (sum, s) => sum + s.verifiedStudySeconds);
+    }
+
+    try {
+      final db = await _dbHelper!.database;
+      if (!db.isOpen || !await _sessionsTableExists(db)) return 0;
+
+      final result = await db.rawQuery(
+        'SELECT SUM(${DatabaseHelper.columnSessionVerifiedStudySeconds}) as total '
+        'FROM ${DatabaseHelper.tableSessions} '
+        'WHERE ${DatabaseHelper.columnSessionTaskId} = ? '
+        'AND ${DatabaseHelper.columnSessionStatus} = ?',
+        [taskId, StudySessionStatus.completed.dbValue],
+      );
+
+      if (result.isNotEmpty) {
+        final total = result.first['total'];
+        if (total is num) {
+          return total.toInt();
+        }
+      }
+      return 0;
+    } catch (e) {
+      return 0;
+    }
+  }
+
   /// Cập nhật metadata hoặc trạng thái một phiên học đã tồn tại bên trong Transaction.
   Future<void> updateSession(StudySession session) async {
     session.validate();

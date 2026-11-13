@@ -124,11 +124,18 @@ class MainActivity : FlutterActivity() {
                 "openExactAlarmSettings" -> {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                         try {
-                            val settingsIntent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
+                            val settingsIntent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                                data = android.net.Uri.parse("package:$packageName")
+                            }
                             startActivity(settingsIntent)
                             result.success(true)
                         } catch (_: Throwable) {
-                            result.success(false)
+                            try {
+                                startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM))
+                                result.success(true)
+                            } catch (_: Throwable) {
+                                result.success(false)
+                            }
                         }
                     } else {
                         result.success(true)

@@ -18,6 +18,8 @@ import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.provider.Settings
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.exampilot.MainActivity
 import com.example.exampilot.R
@@ -35,6 +37,8 @@ class AlarmForegroundService : Service() {
     private var activeAlarmId: Int = DEFAULT_NOTIFICATION_ID
 
     companion object {
+        private const val TAG = "ExamPilotAlarm"
+
         const val CHANNEL_ID = "exampilot_alarm_foreground_v1"
         const val DEFAULT_NOTIFICATION_ID = 900100
 
@@ -77,6 +81,7 @@ class AlarmForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP_ALARM) {
+            Log.i(TAG, "AlarmForegroundService stop action received")
             stopAlarmAndSelf()
             return START_NOT_STICKY
         }
@@ -89,6 +94,8 @@ class AlarmForegroundService : Service() {
         val snoozeCount = intent?.getIntExtra(EXTRA_SNOOZE_COUNT, 0) ?: 0
 
         activeAlarmId = if (alarmId == 0) DEFAULT_NOTIFICATION_ID else alarmId
+        Log.i(TAG, "AlarmForegroundService onStartCommand alarmKey=$alarmKey, id=$activeAlarmId, sound=$soundId, snooze=$snoozeCount")
+
         ensureNotificationChannel()
 
         val notification = buildAlarmNotification(
@@ -99,14 +106,19 @@ class AlarmForegroundService : Service() {
             snoozeCount = snoozeCount,
         )
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                activeAlarmId,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK,
-            )
-        } else {
-            startForeground(activeAlarmId, notification)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    activeAlarmId,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK,
+                )
+            } else {
+                startForeground(activeAlarmId, notification)
+            }
+            Log.i(TAG, "AlarmForegroundService startForeground called for ID $activeAlarmId")
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed startForeground: ${t.message}", t)
         }
 
         acquireWakeLockSafely()
@@ -194,6 +206,7 @@ class AlarmForegroundService : Service() {
             .setOngoing(true)
             .setAutoCancel(false)
             .setContentIntent(openPending)
+            .setFullScreenIntent(openPending, true)
             .addAction(0, "Tắt", dismissPending)
             .addAction(0, "Vào học", startPending)
 
@@ -230,28 +243,58 @@ class AlarmForegroundService : Service() {
         stopMediaPlayerSafely()
         if (soundId == "none") return
 
+        val candidateUris = mutableListOf<Uri>()
+        // 1. Alarm URI
         try {
-            val uri: Uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-                ?: return
+            RingtoneManager.getActualDefaultRingtoneUri(applicationContext, RingtoneManager.TYPE_ALARM)?.let { candidateUris.add(it) }
+        } catch (_: Throwable) {}
+        try {
+            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)?.let { if (!candidateUris.contains(it)) candidateUris.add(it) }
+        } catch (_: Throwable) {}
+        // 2. Notification URI
+        try {
+            RingtoneManager.getActualDefaultRingtoneUri(applicationContext, RingtoneManager.TYPE_NOTIFICATION)?.let { if (!candidateUris.contains(it)) candidateUris.add(it) }
+        } catch (_: Throwable) {}
+        try {
+            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)?.let { if (!candidateUris.contains(it)) candidateUris.add(it) }
+        } catch (_: Throwable) {}
+        // 3. Ringtone URI
+        try {
+            RingtoneManager.getActualDefaultRingtoneUri(applicationContext, RingtoneManager.TYPE_RINGTONE)?.let { if (!candidateUris.contains(it)) candidateUris.add(it) }
+        } catch (_: Throwable) {}
+        try {
+            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)?.let { if (!candidateUris.contains(it)) candidateUris.add(it) }
+        } catch (_: Throwable) {}
+        // 4. System default alarm alert
+        try {
+            Settings.System.DEFAULT_ALARM_ALERT_URI?.let { if (!candidateUris.contains(it)) candidateUris.add(it) }
+        } catch (_: Throwable) {}
 
-            val player = MediaPlayer().apply {
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ALARM)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build(),
-                )
-                setDataSource(applicationContext, uri)
-                isLooping = true
-                prepare()
-                start()
+        Log.i(TAG, "Starting looping alarm sound for soundId='$soundId', candidate URIs count=${candidateUris.size}")
+        for (uri in candidateUris) {
+            try {
+                val player = MediaPlayer().apply {
+                    setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_ALARM)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .build(),
+                    )
+                    setDataSource(applicationContext, uri)
+                    isLooping = true
+                    setVolume(1.0f, 1.0f)
+                    prepare()
+                    start()
+                }
+                mediaPlayer = player
+                Log.i(TAG, "MediaPlayer playing looping alarm audio successfully on URI: $uri")
+                return
+            } catch (e: Throwable) {
+                Log.w(TAG, "Failed playing candidate URI $uri: ${e.message}")
+                stopMediaPlayerSafely()
             }
-            mediaPlayer = player
-        } catch (_: Throwable) {
-            stopMediaPlayerSafely()
         }
+        Log.e(TAG, "All candidate audio URIs failed for alarm sound.")
     }
 
     private fun startVibrationPattern() {

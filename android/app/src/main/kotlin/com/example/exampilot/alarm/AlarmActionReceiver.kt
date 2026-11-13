@@ -3,6 +3,7 @@ package com.example.exampilot.alarm
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import com.example.exampilot.MainActivity
 
 /**
@@ -11,6 +12,8 @@ import com.example.exampilot.MainActivity
  */
 class AlarmActionReceiver : BroadcastReceiver() {
     companion object {
+        private const val TAG = "ExamPilotAlarm"
+
         const val ACTION_DISMISS = "com.example.exampilot.alarm.ACTION_DISMISS"
         const val ACTION_SNOOZE = "com.example.exampilot.alarm.ACTION_SNOOZE"
         const val ACTION_START_STUDY = "com.example.exampilot.alarm.ACTION_START_STUDY"
@@ -19,12 +22,20 @@ class AlarmActionReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val alarmKey = intent.getStringExtra(AlarmForegroundService.EXTRA_ALARM_KEY) ?: ""
+        val alarmId = intent.getIntExtra(AlarmForegroundService.EXTRA_ALARM_ID, 0)
+        Log.i(TAG, "AlarmActionReceiver onReceive action=${intent.action}, alarmKey=$alarmKey, alarmId=$alarmId")
         val now = System.currentTimeMillis()
         val existing = if (alarmKey.isNotEmpty()) AlarmStorage.getByKey(context, alarmKey) else null
 
+        // Luôn dừng AlarmForegroundService và xóa fallback notification (nếu có)
+        AlarmForegroundService.stop(context)
+        if (alarmId != 0) {
+            AlarmReceiver.cancelFallbackNotification(context, alarmId)
+        }
+
         when (intent.action) {
             ACTION_DISMISS -> {
-                AlarmForegroundService.stop(context)
+                Log.i(TAG, "Alarm $alarmKey dismissed by user")
                 if (existing != null) {
                     val updated = existing.copy(
                         status = AlarmStorage.STATUS_DISMISSED,
@@ -38,8 +49,8 @@ class AlarmActionReceiver : BroadcastReceiver() {
 
             ACTION_SNOOZE -> {
                 if (existing != null && existing.snoozeCount == 0) {
-                    AlarmForegroundService.stop(context)
                     val snoozedUntil = now + SNOOZE_DURATION_MILLIS
+                    Log.i(TAG, "Alarm $alarmKey snoozed by user until $snoozedUntil (+5 min)")
                     val updated = existing.copy(
                         status = AlarmStorage.STATUS_SNOOZED,
                         snoozeCount = 1,
@@ -48,11 +59,13 @@ class AlarmActionReceiver : BroadcastReceiver() {
                     )
                     AlarmSchedulerNative.scheduleAlarm(context, updated)
                     AlarmEventBus.emit(updated)
+                } else {
+                    Log.w(TAG, "Cannot snooze alarm $alarmKey: snoozeCount already ${existing?.snoozeCount}")
                 }
             }
 
             ACTION_START_STUDY -> {
-                AlarmForegroundService.stop(context)
+                Log.i(TAG, "Alarm $alarmKey starting study session directly")
                 if (existing != null) {
                     val updated = existing.copy(
                         status = AlarmStorage.STATUS_STARTED,

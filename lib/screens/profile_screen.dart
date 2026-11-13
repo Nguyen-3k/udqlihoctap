@@ -34,6 +34,7 @@ class ProfileScreen extends StatelessWidget {
   final DateTime? lastBackupTime;
   final Future<void> Function()? onBackupData;
   final Future<void> Function()? onRestoreData;
+  final Future<bool> Function()? onScheduleTestAlarm;
 
   const ProfileScreen({
     super.key,
@@ -50,6 +51,7 @@ class ProfileScreen extends StatelessWidget {
     this.onOpenSystemSettings,
     this.audioGateway,
     this.hasValidScheduleSource = false,
+    this.onScheduleTestAlarm,
     required this.onResetStudyData,
     required this.onResetProfile,
     required this.onResetSampleData,
@@ -731,6 +733,7 @@ class ProfileScreen extends StatelessWidget {
           onOpenSystemSettings: onOpenSystemSettings,
           audioGateway: audioGateway,
           hasValidScheduleSource: hasValidScheduleSource,
+          onScheduleTestAlarm: onScheduleTestAlarm,
         ),
         const SizedBox(height: 10),
 

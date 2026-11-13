@@ -37,6 +37,7 @@ class NotificationSettingsSection extends StatefulWidget {
   final AudioPlaybackGateway? audioGateway;
   final bool hasValidScheduleSource;
   final bool initiallyExpanded;
+  final Future<bool> Function()? onScheduleTestAlarm;
 
   const NotificationSettingsSection({
     super.key,
@@ -50,6 +51,7 @@ class NotificationSettingsSection extends StatefulWidget {
     this.audioGateway,
     this.hasValidScheduleSource = false,
     this.initiallyExpanded = false,
+    this.onScheduleTestAlarm,
   });
 
   @override
@@ -354,8 +356,131 @@ class _NotificationSettingsSectionState
                     onSelected: (soundId) =>
                         _updatePrefs(breakSoundId: soundId),
                   ),
+
+                  const SizedBox(height: 16),
+                  Divider(color: context.borderColor, height: 1),
+                  const SizedBox(height: 14),
+
+                  // Khối Kiểm tra & Thử nghiệm Báo thức (Phase 4.2.1)
+                  _buildAlarmTestingCard(context),
                 ],
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAlarmTestingCard(BuildContext context) {
+    final perm = widget.permissionStatus;
+    final isAndroid = !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: context.surfaceMutedColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: context.borderColor, width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.alarm_on_rounded,
+                size: 20,
+                color: AppColors.primary,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Kiểm tra Báo thức trên Thiết bị',
+                style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.bold,
+                  color: context.textPrimaryColor,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            isAndroid
+                ? 'Kiểm chứng trực tiếp trên điện thoại Android: Lập lịch qua AlarmManager -> Khởi chạy Foreground Service -> Phát chuông lặp và rung.'
+                : 'Thử nghiệm kích hoạt bộ hẹn giờ báo thức trong ứng dụng.',
+            style: TextStyle(
+              fontSize: 11.5,
+              color: context.textSecondaryColor,
+              height: 1.35,
+            ),
+          ),
+          if (isAndroid) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Icon(
+                  perm.exactAlarmsGranted
+                      ? Icons.check_circle_rounded
+                      : Icons.warning_amber_rounded,
+                  size: 16,
+                  color: perm.exactAlarmsGranted
+                      ? AppColors.success
+                      : AppColors.priorityMedium,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    perm.exactAlarmsGranted
+                        ? 'Quyền Báo thức chính xác (Exact Alarm): Đã cấp'
+                        : 'Chưa cấp quyền Exact Alarm (Báo thức có thể bị trễ trên Android 13+)',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                      color: perm.exactAlarmsGranted
+                          ? context.textPrimaryColor
+                          : AppColors.priorityMedium,
+                    ),
+                  ),
+                ),
+                if (!perm.exactAlarmsGranted &&
+                    widget.onRequestExactAlarmPermission != null)
+                  TextButton(
+                    onPressed: () => widget.onRequestExactAlarmPermission!(),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: const Text('Cấp quyền', style: TextStyle(fontSize: 11.5)),
+                  ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.tonalIcon(
+              key: const ValueKey('test_alarm_10s_button'),
+              icon: const Icon(Icons.timer_outlined, size: 18),
+              label: const Text('Thử nghiệm báo thức sau 10 giây'),
+              onPressed: widget.onScheduleTestAlarm != null
+                  ? () async {
+                      final ok = await widget.onScheduleTestAlarm!();
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            ok
+                                ? 'Đã lên lịch báo thức thử nghiệm sau 10 giây! Bạn có thể khóa màn hình để kiểm tra chuông.'
+                                : 'Đã lên lịch báo thức (chế độ dự phòng do thiếu quyền Exact Alarm).',
+                          ),
+                          duration: const Duration(seconds: 4),
+                        ),
+                      );
+                    }
+                  : null,
             ),
           ),
         ],

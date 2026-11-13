@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../models/study_session.dart';
 import '../models/study_task.dart';
 import '../models/subject.dart';
 import '../models/task_status.dart';
@@ -26,12 +27,16 @@ class SubjectDetailScreen extends StatefulWidget {
   final VoidCallback onEditSubject;
   final ValueChanged<Subject>? onUpdateSubject;
   final VoidCallback onDeleteSubject;
+  final List<StudySession>? sessions;
+  final ValueChanged<StudyTask>? onStartStudy;
+  final ValueChanged<StudyTask>? onReschedule;
 
   const SubjectDetailScreen({
     super.key,
     required this.subject,
     required this.allSubjects,
     required this.tasks,
+    this.sessions,
     required this.onToggleComplete,
     required this.onTapTask,
     required this.onEditTask,
@@ -41,6 +46,8 @@ class SubjectDetailScreen extends StatefulWidget {
     required this.onEditSubject,
     this.onUpdateSubject,
     required this.onDeleteSubject,
+    this.onStartStudy,
+    this.onReschedule,
   });
 
   @override
@@ -551,10 +558,23 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
             ...filteredTasks.map(
               (task) => TaskCard(
                 task: task,
+                accumulatedStudySeconds: widget.sessions
+                    ?.where(
+                      (s) =>
+                          s.taskId == task.id &&
+                          s.status == StudySessionStatus.completed,
+                    )
+                    .fold<int>(0, (sum, s) => sum + s.verifiedStudySeconds),
                 onToggleComplete: (_) => _handleToggleComplete(task),
                 onTap: () => widget.onTapTask(task),
                 onEdit: () => widget.onEditTask(task),
                 onDelete: () => _handleDeleteTask(task),
+                onStartStudy: widget.onStartStudy != null
+                    ? () => widget.onStartStudy!(task)
+                    : null,
+                onReschedule: widget.onReschedule != null
+                    ? () => widget.onReschedule!(task)
+                    : null,
               ),
             ),
           const SizedBox(height: 16),

@@ -129,12 +129,35 @@ class StudyNotificationCoordinator extends ChangeNotifier {
   factory StudyNotificationCoordinator.createDefault({
     required UserProfile initialProfile,
     TimerClock? clock,
+    List<ScheduledStudySlot> Function()? scheduleSlotsProvider,
     ValueChanged<AlarmRecord>? onAlarmStartStudyRequested,
   }) {
     return StudyNotificationCoordinator(
       initialProfile: initialProfile,
       clock: clock,
+      scheduleSlotsProvider: scheduleSlotsProvider,
       onAlarmStartStudyRequested: onAlarmStartStudyRequested,
+    );
+  }
+
+  /// Lên lịch thử nghiệm một báo thức thực tế sau một khoảng thời gian (mặc định 10s)
+  /// để người dùng và kiểm thử viên kiểm chứng tức thì trên thiết bị thật:
+  /// Flutter -> MethodChannel -> AlarmManager (Exact) -> BroadcastReceiver -> ForegroundService -> Looping Audio & Vibration.
+  Future<bool> scheduleTestAlarm({
+    Duration duration = const Duration(seconds: 10),
+    String? title,
+  }) async {
+    final targetUtc = clock.nowUtc().add(duration);
+    final testSlot = ScheduledStudySlot(
+      id: 'test_alarm_${targetUtc.millisecondsSinceEpoch}',
+      subjectName: title ?? 'Báo thức thử nghiệm ExamPilot',
+      taskTitle: 'Đang kiểm tra chuông báo thức (${duration.inSeconds}s)',
+      startAtUtc: targetUtc,
+    );
+    final chosenSoundId = _profile.alarmSoundId;
+    return alarmStateManager.scheduleForSlot(
+      slot: testSlot,
+      soundId: chosenSoundId,
     );
   }
 
