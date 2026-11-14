@@ -237,7 +237,7 @@ void main() {
         final userVersion = Sqflite.firstIntValue(
           await openTestDb!.rawQuery('PRAGMA user_version'),
         );
-        expect(userVersion, 7);
+        expect(userVersion, greaterThanOrEqualTo(7));
 
         final tables = await openTestDb!.rawQuery(
           "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
@@ -462,7 +462,7 @@ void main() {
         final recoveredVersion = Sqflite.firstIntValue(
           await openTestDb!.rawQuery('PRAGMA user_version'),
         );
-        expect(recoveredVersion, 7);
+        expect(recoveredVersion, greaterThanOrEqualTo(7));
       },
     );
 

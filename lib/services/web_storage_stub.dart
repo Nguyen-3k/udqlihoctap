@@ -1,4 +1,5 @@
 import '../models/class_schedule.dart';
+import '../models/class_schedule_occurrence.dart';
 import '../models/study_activity.dart';
 import '../models/user_profile.dart';
 
@@ -70,5 +71,22 @@ class WebScheduleStorage {
 
   static void clearSchedules() {
     _inMemorySchedules.clear();
+  }
+}
+
+/// Triển khai lưu trữ buổi học theo ngày (occurrences) dự phòng khi không chạy trên Web.
+class WebOccurrenceStorage {
+  static List<ClassScheduleOccurrence> _inMemoryOccurrences = [];
+
+  static List<ClassScheduleOccurrence> loadOccurrences() {
+    return List<ClassScheduleOccurrence>.from(_inMemoryOccurrences);
+  }
+
+  static void saveOccurrences(List<ClassScheduleOccurrence> occurrences) {
+    _inMemoryOccurrences = List<ClassScheduleOccurrence>.from(occurrences);
+  }
+
+  static void clearOccurrences() {
+    _inMemoryOccurrences.clear();
   }
 }

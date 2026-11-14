@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../models/alarm_state.dart';
 import '../models/class_schedule.dart';
+import '../models/class_schedule_occurrence.dart';
 import '../models/study_activity.dart';
 import '../models/study_session.dart';
 import '../models/study_streak.dart';
@@ -20,6 +21,7 @@ import '../repositories/session_repository.dart';
 import '../repositories/subject_repository.dart';
 import '../repositories/task_repository.dart';
 import '../services/backup_service.dart';
+import '../services/class_schedule_resolver.dart';
 import '../services/session_storage.dart';
 import '../services/study_notification_coordinator.dart';
 import '../services/study_timer_engine.dart';
@@ -90,6 +92,12 @@ class _AppShellState extends State<AppShell> {
 
   // Danh sách lịch học cố định theo tuần (Phase 4.3)
   List<ClassSchedule> _schedules = [];
+
+  // Danh sách buổi học theo ngày cụ thể (Phase 6D)
+  List<ClassScheduleOccurrence> _occurrences = [];
+
+  // Bộ phân giải lịch học hợp nhất (Phase 6D)
+  final ClassScheduleResolver _scheduleResolver = const ClassScheduleResolver();
 
   // Danh sách ngày học tập ghi nhận (Study Streak)
   Set<String> _activeDates = {};
@@ -252,6 +260,7 @@ class _AppShellState extends State<AppShell> {
       final profileFuture = _profileRepository.getProfile();
       final sessionsFuture = _sessionRepository.getAllSessions();
       final schedulesFuture = _scheduleRepository.getAllSchedules();
+      final occurrencesFuture = _scheduleRepository.getAllOccurrences();
 
       final results = await Future.wait([
         subjectsFuture,
@@ -261,6 +270,7 @@ class _AppShellState extends State<AppShell> {
         profileFuture,
         sessionsFuture,
         schedulesFuture,
+        occurrencesFuture,
       ]);
       final loadedSubjects = results[0] as List<Subject>;
       final loadedTasks = results[1] as List<StudyTask>;
@@ -269,6 +279,7 @@ class _AppShellState extends State<AppShell> {
       final loadedProfile = results[4] as UserProfile;
       var loadedSessions = results[5] as List<StudySession>;
       final loadedSchedules = results[6] as List<ClassSchedule>;
+      final loadedOccurrences = results[7] as List<ClassScheduleOccurrence>;
 
       if (!_hasCheckedInitialRecovery) {
         _hasCheckedInitialRecovery = true;
@@ -291,6 +302,7 @@ class _AppShellState extends State<AppShell> {
         _userProfile = loadedProfile;
         _sessions = loadedSessions;
         _schedules = loadedSchedules;
+        _occurrences = loadedOccurrences;
         _isLoading = false;
       });
       widget.onThemeModeChanged?.call(loadedProfile.flutterThemeMode);
@@ -325,6 +337,7 @@ class _AppShellState extends State<AppShell> {
           _activities = WebStreakStorage.loadActivities();
           _sessions = WebSessionStorage.loadSessions();
           _schedules = WebScheduleStorage.loadSchedules();
+          _occurrences = WebOccurrenceStorage.loadOccurrences();
           _userProfile = webProfile;
           _isLoading = false;
           _errorMessage = null;
@@ -422,15 +435,12 @@ class _AppShellState extends State<AppShell> {
 
   List<ScheduledStudySlot> _generateUpcomingStudySlots() {
     final now = DateTime.now();
-    final slots = <ScheduledStudySlot>[];
-    for (final schedule in _schedules) {
-      if (schedule.isActive) {
-        slots.addAll(
-          schedule.generateUpcomingSlots(fromTime: now, daysAhead: 14),
-        );
-      }
-    }
-    return slots;
+    return _scheduleResolver.resolveSlots(
+      fixedSchedules: _schedules,
+      occurrences: _occurrences,
+      fromTime: now,
+      daysAhead: 14,
+    );
   }
 
   Future<void> _addSchedule(ClassSchedule schedule) async {
@@ -509,11 +519,19 @@ class _AppShellState extends State<AppShell> {
     required List<Subject> newSubjects,
   }) async {
     try {
-      // 1. Thêm các môn học mới nếu có
-      for (final subject in newSubjects) {
-        await _subjectRepository.insertSubject(subject);
-      }
+      // 1. Chèn cả môn học mới và lịch học trong cùng một Transaction nguyên tử
+      await _scheduleRepository.importSchedulesWithSubjectsBatch(
+        schedules: schedules,
+        newSubjects: newSubjects,
+      );
+
+      // Cập nhật state môn học trên UI
       if (newSubjects.isNotEmpty) {
+        if (_subjectRepository.isWebPreview) {
+          for (final sub in newSubjects) {
+            await _subjectRepository.insertSubject(sub);
+          }
+        }
         final updatedSubjects = await _subjectRepository.getAllSubjects();
         if (mounted) {
           setState(() {
@@ -522,16 +540,14 @@ class _AppShellState extends State<AppShell> {
         }
       }
 
-      // 2. Batch insert các lịch học
-      await _scheduleRepository.insertSchedulesBatch(schedules);
+      // Cập nhật state lịch học trên UI
       final updatedSchedules = await _scheduleRepository.getAllSchedules();
-
       if (!mounted) return;
       setState(() {
         _schedules = updatedSchedules;
       });
 
-      // 3. Đồng bộ lại hệ thống nhắc nhở và báo thức
+      // 2. Đồng bộ lại hệ thống nhắc nhở và báo thức
       await _notificationCoordinator.syncSchedules();
 
       _showNotification(
@@ -539,8 +555,54 @@ class _AppShellState extends State<AppShell> {
         '${newSubjects.isNotEmpty ? ' và tạo ${newSubjects.length} môn học mới' : ''}.',
       );
     } catch (e) {
+      if (mounted) {
+        _showNotification('Lỗi khi nhập thời khóa biểu: $e', isError: true);
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> _handleImportOccurrences({
+    required List<ClassScheduleOccurrence> occurrences,
+    required List<Subject> newSubjects,
+  }) async {
+    try {
+      await _scheduleRepository.importOccurrencesWithSubjectsBatch(
+        occurrences: occurrences,
+        newSubjects: newSubjects,
+      );
+
+      if (newSubjects.isNotEmpty) {
+        if (_subjectRepository.isWebPreview) {
+          for (final sub in newSubjects) {
+            await _subjectRepository.insertSubject(sub);
+          }
+        }
+        final updatedSubjects = await _subjectRepository.getAllSubjects();
+        if (mounted) {
+          setState(() {
+            _subjects = updatedSubjects;
+          });
+        }
+      }
+
+      final updatedOccurrences = await _scheduleRepository.getAllOccurrences();
       if (!mounted) return;
-      _showNotification('Lỗi khi nhập thời khóa biểu: $e', isError: true);
+      setState(() {
+        _occurrences = updatedOccurrences;
+      });
+
+      await _notificationCoordinator.syncSchedules();
+
+      _showNotification(
+        'Đã nhập thành công ${occurrences.length} buổi học theo ngày'
+        '${newSubjects.isNotEmpty ? ' và tạo ${newSubjects.length} môn học mới' : ''}.',
+      );
+    } catch (e) {
+      if (mounted) {
+        _showNotification('Lỗi khi nhập lịch học theo ngày: $e', isError: true);
+      }
+      rethrow;
     }
   }
 
@@ -1526,6 +1588,7 @@ class _AppShellState extends State<AppShell> {
         subjects: _subjects,
         sessions: _sessions,
         schedules: _schedules,
+        occurrences: _occurrences,
         onToggleComplete: _toggleTaskComplete,
         onTapTask: _openTaskDetail,
         onEditTask: (task) => _openTaskForm(initialTask: task),
@@ -1538,6 +1601,7 @@ class _AppShellState extends State<AppShell> {
         onDeleteSchedule: _deleteSchedule,
         onToggleScheduleActive: _toggleScheduleActive,
         onImportSchedules: _handleImportSchedules,
+        onImportOccurrences: _handleImportOccurrences,
       ),
       SubjectsScreen(
         subjects: _subjects,

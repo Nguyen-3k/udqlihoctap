@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:sqflite/sqflite.dart';
 import '../database/database_helper.dart';
 import '../models/class_schedule.dart';
+import '../models/class_schedule_occurrence.dart';
 import '../models/study_activity.dart';
 import '../models/study_task.dart';
 import '../models/subject.dart';
@@ -22,6 +23,7 @@ class BackupPreview {
   final int totalTasks;
   final int totalActivities;
   final int totalSchedules;
+  final int totalOccurrences;
   final String userName;
   final double weeklyTargetHours;
   final int weeklyTargetTasks;
@@ -35,6 +37,7 @@ class BackupPreview {
     required this.totalTasks,
     required this.totalActivities,
     this.totalSchedules = 0,
+    this.totalOccurrences = 0,
     required this.userName,
     required this.weeklyTargetHours,
     required this.weeklyTargetTasks,
@@ -113,6 +116,9 @@ class BackupService {
     final schedules = scheduleRepository != null
         ? await scheduleRepository!.getAllSchedules()
         : <ClassSchedule>[];
+    final occurrences = scheduleRepository != null
+        ? await scheduleRepository!.getAllOccurrences()
+        : <ClassScheduleOccurrence>[];
 
     final dataBlock = <String, dynamic>{
       'profile': profile.toMap(),
@@ -120,6 +126,7 @@ class BackupService {
       'tasks': tasks.map((t) => t.toMap()).toList(),
       'activities': activities.map((a) => a.toMap()).toList(),
       'schedules': schedules.map((s) => s.toMap()).toList(),
+      'occurrences': occurrences.map((o) => o.toMap()).toList(),
     };
 
     final canonicalDataJson = jsonEncode(dataBlock);
@@ -136,6 +143,7 @@ class BackupService {
         'totalTasks': tasks.length,
         'totalActivities': activities.length,
         'totalSchedules': schedules.length,
+        'totalOccurrences': occurrences.length,
       },
       'data': dataBlock,
       'checksum': checksum,
@@ -335,6 +343,18 @@ class BackupService {
       }
     }
 
+    // Kiểm tra cấu trúc danh sách buổi học theo ngày (occurrences) nếu có
+    final occurrencesRaw = dataMap['occurrences'] is List
+        ? (dataMap['occurrences'] as List)
+        : const [];
+    for (final o in occurrencesRaw) {
+      if (o is! Map) {
+        return const BackupValidationResult.failure(
+          'Dữ liệu buổi học theo ngày trong tệp bị lỗi định dạng.',
+        );
+      }
+    }
+
     // 7. Trích xuất thông tin xem trước (Preview)
     final profileMap = dataMap['profile'] is Map
         ? Map<String, dynamic>.from(dataMap['profile'] as Map)
@@ -357,6 +377,7 @@ class BackupService {
       totalTasks: tasksRaw.length,
       totalActivities: activitiesRaw.length,
       totalSchedules: schedulesRaw.length,
+      totalOccurrences: occurrencesRaw.length,
       userName: userName,
       weeklyTargetHours: targetHours,
       weeklyTargetTasks: targetTasks,
@@ -401,6 +422,14 @@ class BackupService {
         .map((m) => ClassSchedule.fromMap(Map<String, dynamic>.from(m)))
         .toList();
 
+    final occurrencesRaw = data['occurrences'] is List
+        ? (data['occurrences'] as List)
+        : const [];
+    final occurrences = occurrencesRaw
+        .whereType<Map>()
+        .map((m) => ClassScheduleOccurrence.fromMap(Map<String, dynamic>.from(m)))
+        .toList();
+
     final rawProfile = data['profile'] is Map
         ? UserProfile.fromMap(Map<String, dynamic>.from(data['profile'] as Map))
         : const UserProfile();
@@ -427,8 +456,9 @@ class BackupService {
 
       // Sử dụng Transaction: Nếu bất kỳ bước nào thất bại, toàn bộ dữ liệu cũ được Rollback nguyên vẹn!
       await db.transaction((txn) async {
-        // Đảm bảo bảng class_schedules và các cột v8 của study_tasks tồn tại nếu DB chưa có
+        // Đảm bảo bảng class_schedules, class_schedule_occurrences và các cột v8 của study_tasks tồn tại nếu DB chưa có
         await DatabaseHelper.createClassSchedulesTable(txn);
+        await DatabaseHelper.createScheduleOccurrencesTable(txn);
         await DatabaseHelper.upgradeTasksColumnsToV8(txn);
 
         // Xóa dữ liệu cũ
@@ -437,6 +467,7 @@ class BackupService {
         await txn.delete(DatabaseHelper.tableSubjects);
         await txn.delete(DatabaseHelper.tableProfile);
         await txn.delete(DatabaseHelper.tableClassSchedules);
+        await txn.delete(DatabaseHelper.tableScheduleOccurrences);
 
         // Ghi dữ liệu môn học
         for (final s in subjects) {
@@ -474,6 +505,15 @@ class BackupService {
           );
         }
 
+        // Ghi dữ liệu buổi học theo ngày (occurrences)
+        for (final occ in occurrences) {
+          await txn.insert(
+            DatabaseHelper.tableScheduleOccurrences,
+            occ.toMap(),
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+
         // Bảo đảm bảng user_profile có đủ cột v7 và ghi hồ sơ cá nhân
         await DatabaseHelper.upgradeProfileColumnsToV7(txn);
         await txn.insert(
@@ -488,6 +528,7 @@ class BackupService {
       await subjectRepository.resetDefaultSubjects(subjects);
       if (scheduleRepository != null) {
         await scheduleRepository!.resetDefaultSchedules(schedules);
+        await scheduleRepository!.resetDefaultOccurrences(occurrences);
       }
       for (final t in tasks) {
         await taskRepository.insertTask(t);

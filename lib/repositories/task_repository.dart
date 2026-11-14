@@ -740,11 +740,30 @@ class TaskRepository {
       await db.transaction((txn) async {
         await txn.delete(DatabaseHelper.tableTasks);
         for (final task in sampleTasks) {
-          await txn.insert(
-            DatabaseHelper.tableTasks,
-            task.toMap(),
-            conflictAlgorithm: ConflictAlgorithm.replace,
-          );
+          final taskMap = Map<String, dynamic>.from(task.toMap());
+          try {
+            await txn.insert(
+              DatabaseHelper.tableTasks,
+              taskMap,
+              conflictAlgorithm: ConflictAlgorithm.replace,
+            );
+          } catch (e) {
+            final msg = e.toString();
+            if (msg.contains('actual_minutes') ||
+                msg.contains('reminder_enabled') ||
+                msg.contains('reminder_minutes')) {
+              taskMap.remove(DatabaseHelper.columnActualMinutes);
+              taskMap.remove(DatabaseHelper.columnTaskReminderEnabled);
+              taskMap.remove(DatabaseHelper.columnTaskReminderMinutes);
+              await txn.insert(
+                DatabaseHelper.tableTasks,
+                taskMap,
+                conflictAlgorithm: ConflictAlgorithm.replace,
+              );
+            } else {
+              rethrow;
+            }
+          }
         }
       });
     } catch (e) {

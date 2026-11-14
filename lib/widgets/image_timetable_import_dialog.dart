@@ -1,30 +1,42 @@
 import 'package:flutter/material.dart';
 
+import '../models/ai_timetable_model.dart';
 import '../models/class_schedule.dart';
+import '../models/class_schedule_occurrence.dart';
 import '../models/subject.dart';
 import '../models/timetable_import_model.dart';
+import '../services/ai/timetable_ai_service.dart';
+import '../services/class_period_time_mapper.dart';
 import '../services/image_timetable_importer.dart';
 import '../theme/app_colors.dart';
 
-/// Hộp thoại Nhập thời khóa biểu từ ảnh (Phase 6B Foundation - Free-First)
-/// Hỗ trợ chọn ảnh JPG, JPEG, PNG, hiển thị ảnh đã chọn, thông báo trạng thái
-/// nhận diện OCR (chưa xử lý, đang xử lý, chưa hỗ trợ nhận diện, có lỗi),
-/// và cho phép xem trước, sửa, bỏ qua, bổ sung lịch học từ ảnh trước khi xác nhận lưu.
+/// Hộp thoại Nhập thời khóa biểu từ ảnh bằng Gemini Vision & Supabase Edge Functions (Phase 6D)
+/// Hỗ trợ chọn ảnh JPG, JPEG, PNG, chụp từ Camera, gửi tới Gemini Vision phân tích
+/// cấu trúc bảng đa tuần và trả về JSON có cấu trúc.
+/// Người dùng được xem trước, chỉnh sửa thông tin, chọn lưu thành Lịch theo ngày (Occurrence)
+/// hoặc Thời khóa biểu cố định trước khi xác nhận lưu.
 class ImageTimetableImportDialog extends StatefulWidget {
   final List<Subject> subjects;
   final List<ClassSchedule> existingSchedules;
   final ImageTimetableCoordinator? coordinator;
+  final TimetableAiService? aiService;
   final Future<void> Function({
     required List<ClassSchedule> schedules,
     required List<Subject> newSubjects,
   }) onImport;
+  final Future<void> Function({
+    required List<ClassScheduleOccurrence> occurrences,
+    required List<Subject> newSubjects,
+  })? onImportOccurrences;
 
   const ImageTimetableImportDialog({
     super.key,
     required this.subjects,
     required this.existingSchedules,
     this.coordinator,
+    this.aiService,
     required this.onImport,
+    this.onImportOccurrences,
   });
 
   @override
@@ -35,12 +47,17 @@ class ImageTimetableImportDialog extends StatefulWidget {
 class _ImageTimetableImportDialogState
     extends State<ImageTimetableImportDialog> {
   late final ImageTimetableCoordinator _coordinator;
+  late final TimetableAiService _aiService;
 
   TimetableImage? _selectedImage;
   OcrEngineStatus _ocrStatus = OcrEngineStatus.idle;
   String? _statusMessage;
   bool _isProcessing = false;
   bool _showImagePreview = true;
+  bool _saveAsOccurrence = true;
+  AiTimetableResult? _aiResult;
+
+  AiTimetableResult? get aiResult => _aiResult;
 
   // Danh sách các dòng lịch học đã bóc tách / nhập thủ công từ ảnh
   final List<ImportedScheduleItem> _items = [];
@@ -59,6 +76,7 @@ class _ImageTimetableImportDialogState
   void initState() {
     super.initState();
     _coordinator = widget.coordinator ?? ImageTimetableCoordinator();
+    _aiService = widget.aiService ?? SupabaseTimetableAiService();
   }
 
   // --- THAO TÁC CHỌN VÀ ĐỔI ẢNH (CAMERA & GALLERY) ---
@@ -162,49 +180,232 @@ class _ImageTimetableImportDialogState
       _isProcessing = true;
       _ocrStatus = OcrEngineStatus.processing;
       _statusMessage =
-          'Đang tiến hành quét và nhận diện chữ On-Device qua Google ML Kit...';
+          'Đang phân tích cấu trúc thời khóa biểu bằng Gemini Vision...';
     });
 
     try {
-      final result = await _coordinator.textRecognizer.recognizeText(image);
+      final aiResult = await _aiService.analyzeTimetable(
+        imageBytes: image.bytes,
+        mimeType: image.mimeType,
+      );
 
       if (!mounted) return;
 
-      if (!result.isSuccess) {
+      _aiResult = aiResult;
+
+      // Nếu Gemini AI báo lỗi (HTTP error, API key lỗi, quota limit, ...)
+      // dừng ngay và thông báo lỗi rõ ràng cho người dùng, KHÔNG tự ý chuyển sang ML Kit
+      if (!aiResult.success) {
         setState(() {
           _isProcessing = false;
-          _ocrStatus = result.status;
-          _statusMessage = result.errorMessage ??
-              'Không thể nhận diện văn bản từ hình ảnh này.';
+          _ocrStatus = OcrEngineStatus.error;
+          _statusMessage = aiResult.errorMessage ??
+              'Không thể phân tích ảnh thời khóa biểu bằng Gemini Vision.';
         });
         return;
       }
 
-      // Khi có kết quả text thật từ OCR:
-      final parsed = _coordinator.textParser.parseTextToSchedules(
-        rawText: result.rawText,
-        textBlocks: result.textBlocks,
-        structuredBlocks: result.structuredBlocks,
-        existingSubjects: widget.subjects,
-        existingSchedules: widget.existingSchedules,
-      );
+      final parsedItems = <ImportedScheduleItem>[];
+      int rowIdx = 1;
+      bool hasSpecificDate = false;
+
+      for (final cls in aiResult.classes) {
+        final rawName = cls.subjectName.trim();
+        if (rawName.isEmpty || isProhibitedSubjectName(rawName)) continue;
+
+        // Tìm môn học đã tồn tại (khớp theo tên hoặc mã)
+        Subject? matchedSub;
+        for (final s in widget.subjects) {
+          if (s.name.trim().toLowerCase() == rawName.toLowerCase()) {
+            matchedSub = s;
+            break;
+          }
+        }
+
+        final isNew = matchedSub == null;
+        final matchedId = matchedSub?.id;
+        final matchedName = matchedSub?.name ?? rawName;
+
+        // Tính toán thứ và ngày
+        int? dayOfWeek = cls.dayOfWeek;
+        if (dayOfWeek == null && cls.classDate != null) {
+          final dt = DateTime.tryParse(cls.classDate!);
+          if (dt != null) dayOfWeek = dt.weekday;
+        }
+        if (cls.classDate != null && cls.classDate!.isNotEmpty) {
+          hasSpecificDate = true;
+        }
+
+        // Xử lý xác định startTime và endTime theo quy tắc ưu tiên (Phase 6D.2):
+        // 1. Giờ đồng hồ cụ thể nếu ảnh / AI đã bóc tách được (cls.hasTime).
+        // 2. Nếu thiếu giờ nhưng có startPeriod và endPeriod: Quy đổi qua ClassPeriodTimeMapper.
+        // 3. Nếu số tiết không khớp bảng quy đổi (ví dụ tiết 5, 6): Báo warning và yêu cầu người dùng xác nhận hoặc sửa tay.
+        String? resolvedStartTime = cls.startTime;
+        String? resolvedEndTime = cls.endTime;
+        String? periodWarning;
+
+        final hasExplicitTime = resolvedStartTime != null &&
+            resolvedStartTime.isNotEmpty &&
+            resolvedEndTime != null &&
+            resolvedEndTime.isNotEmpty;
+
+        if (!hasExplicitTime &&
+            cls.startPeriod != null &&
+            cls.endPeriod != null) {
+          final mapping = ClassPeriodTimeMapper.mapPeriodsToTime(
+            cls.startPeriod,
+            cls.endPeriod,
+          );
+          if (mapping != null) {
+            resolvedStartTime = mapping.startTime;
+            resolvedEndTime = mapping.endTime;
+          } else {
+            periodWarning =
+                'Tiết ${cls.startPeriod}–${cls.endPeriod} chưa có cấu hình giờ chính thức';
+          }
+        }
+
+        // Xác định trạng thái
+        ImportItemStatus status = ImportItemStatus.valid;
+        String? errorMsg;
+        String? warnMsg;
+
+        if (resolvedStartTime == null || resolvedEndTime == null) {
+          status = ImportItemStatus.errorMissingField;
+          errorMsg = periodWarning ?? 'Thiếu thông tin giờ học (cần bổ sung)';
+        } else if (!isValidTimeString(resolvedStartTime) ||
+            !isValidTimeString(resolvedEndTime)) {
+          status = ImportItemStatus.errorInvalidTime;
+          errorMsg = 'Định dạng giờ không hợp lệ';
+        } else {
+          final startMin = timeStringToMinutes(resolvedStartTime)!;
+          final endMin = timeStringToMinutes(resolvedEndTime)!;
+          if (startMin >= endMin) {
+            status = ImportItemStatus.errorInvalidTime;
+            errorMsg = 'Giờ bắt đầu phải trước giờ kết thúc';
+          } else {
+            // Kiểm tra trùng lịch cố định
+            if (dayOfWeek != null) {
+              for (final ex in widget.existingSchedules) {
+                if (ex.dayOfWeek == dayOfWeek && ex.isActive) {
+                  if (startMin < ex.endMinutesSinceMidnight &&
+                      ex.startMinutesSinceMidnight < endMin) {
+                    status = ImportItemStatus.warningOverlap;
+                    warnMsg =
+                        'Trùng giờ với ${ex.subjectName} (${ex.timeRangeText})';
+                    break;
+                  }
+                }
+              }
+            }
+            if (status == ImportItemStatus.valid && isNew) {
+              status = ImportItemStatus.newSubject;
+            }
+          }
+        }
+
+        final needsReview = cls.needsReview || periodWarning != null;
+        final reviewReason = cls.reviewReason ?? periodWarning;
+
+        parsedItems.add(
+          ImportedScheduleItem(
+            rowIndex: rowIdx++,
+            rawSubjectName: rawName,
+            matchedSubjectId: matchedId,
+            matchedSubjectName: matchedName,
+            isNewSubject: isNew,
+            dayOfWeek: dayOfWeek,
+            classDate: cls.classDate,
+            startPeriod: cls.startPeriod,
+            endPeriod: cls.endPeriod,
+            startTime: resolvedStartTime,
+            endTime: resolvedEndTime,
+            location: cls.location ?? '',
+            teacher: cls.teacher ?? '',
+            notes: cls.notes ?? '',
+            confidence: cls.confidence,
+            needsReview: needsReview,
+            reviewReason: reviewReason,
+            isSelected: !status.hasError && !needsReview,
+            status: status,
+            errorMessage: errorMsg,
+            warningMessage: warnMsg ?? periodWarning,
+          ),
+        );
+      }
 
       setState(() {
         _isProcessing = false;
         _ocrStatus = OcrEngineStatus.success;
-        _statusMessage = parsed.isNotEmpty
-            ? 'Đã nhận diện thành công ${parsed.length} buổi học từ ảnh.'
-            : 'Đã nhận diện chữ trong ảnh nhưng chưa tìm thấy cấu trúc thời khóa biểu rõ ràng. '
-                'Bạn có thể nhìn ảnh phía trên và bấm "+ Thêm buổi học" để lập lịch.';
+        if (hasSpecificDate) {
+          _saveAsOccurrence = true;
+        }
+        _statusMessage = parsedItems.isNotEmpty
+            ? 'Gemini Vision đã nhận diện thành công ${parsedItems.length} buổi học.'
+            : 'Gemini Vision đã quét ảnh nhưng không tìm thấy buổi học nào.';
         _items.clear();
-        _items.addAll(parsed);
+        _items.addAll(parsedItems);
       });
     } catch (e) {
+      if (!mounted) return;
+      // Khi Gemini Vision gặp ngoại lệ kết nối/hệ thống, dừng lại và thông báo lỗi rõ ràng.
+      // Tuyệt đối không tự động chuyển sang ML Kit mà không có sự chủ động từ người dùng.
+      setState(() {
+        _isProcessing = false;
+        _ocrStatus = OcrEngineStatus.error;
+        _statusMessage = 'Lỗi kết nối Gemini Vision: $e';
+      });
+    }
+  }
+
+  /// Cho phép người dùng chủ động thử nhận diện bằng Google ML Kit On-Device
+  /// khi Gemini Vision không khả dụng hoặc bị lỗi mạng.
+  Future<void> _runMlKitFallback(TimetableImage image) async {
+    setState(() {
+      _isProcessing = true;
+      _ocrStatus = OcrEngineStatus.processing;
+      _statusMessage =
+          'Đang nhận diện chữ bằng Google ML Kit On-Device trên thiết bị...';
+    });
+
+    try {
+      final result = await _coordinator.textRecognizer.recognizeText(image);
+      if (!mounted) return;
+
+      if (result.isSuccess && result.rawText.isNotEmpty) {
+        final parsed = _coordinator.textParser.parseTextToSchedules(
+          rawText: result.rawText,
+          textBlocks: result.textBlocks,
+          structuredBlocks: result.structuredBlocks,
+          existingSubjects: widget.subjects,
+          existingSchedules: widget.existingSchedules,
+        );
+
+        if (parsed.isNotEmpty) {
+          setState(() {
+            _isProcessing = false;
+            _ocrStatus = OcrEngineStatus.success;
+            _statusMessage =
+                'Nhận diện thành công bằng Google ML Kit On-Device: ${parsed.length} buổi học.';
+            _items.clear();
+            _items.addAll(parsed);
+          });
+          return;
+        }
+      }
+
+      setState(() {
+        _isProcessing = false;
+        _ocrStatus = OcrEngineStatus.error;
+        _statusMessage =
+            'Google ML Kit On-Device không tìm thấy buổi học nào trong ảnh này.';
+      });
+    } catch (err) {
       if (!mounted) return;
       setState(() {
         _isProcessing = false;
         _ocrStatus = OcrEngineStatus.error;
-        _statusMessage = 'Đã xảy ra sự cố trong quá trình nhận diện: $e';
+        _statusMessage = 'Lỗi nhận diện Google ML Kit: $err';
       });
     }
   }
@@ -222,8 +423,17 @@ class _ImageTimetableImportDialogState
     final teacherController =
         TextEditingController(text: item?.teacher ?? '');
     final notesController = TextEditingController(text: item?.notes ?? '');
+    final startPeriodController = TextEditingController(
+      text: item?.startPeriod != null ? item!.startPeriod.toString() : '',
+    );
+    final endPeriodController = TextEditingController(
+      text: item?.endPeriod != null ? item!.endPeriod.toString() : '',
+    );
 
     int selectedDay = item?.dayOfWeek ?? DateTime.now().weekday;
+    DateTime? selectedDate =
+        item?.classDate != null ? DateTime.tryParse(item!.classDate!) : null;
+
     TimeOfDay startTime = item?.startTime != null
         ? _parseTime(item!.startTime!)
         : const TimeOfDay(hour: 8, minute: 0);
@@ -233,6 +443,14 @@ class _ImageTimetableImportDialogState
 
     String? matchedSubId = item?.matchedSubjectId;
     bool isNewSub = item?.isNewSubject ?? true;
+    bool autoSyncTimeWithPeriod = true;
+
+    PeriodTimeMappingResult? resolvePeriodMapping(String spText, String epText) {
+      final s = int.tryParse(spText.trim());
+      final e = int.tryParse(epText.trim());
+      if (s == null || e == null) return null;
+      return ClassPeriodTimeMapper.mapPeriodsToTime(s, e);
+    }
 
     showDialog<void>(
       context: context,
@@ -366,9 +584,80 @@ class _ImageTimetableImportDialogState
                         ),
                         const SizedBox(height: 14),
 
+                        // Ngày học cụ thể (ClassDate)
+                        InkWell(
+                          onTap: () async {
+                            final picked = await showDatePicker(
+                              context: ctx,
+                              initialDate: selectedDate ?? DateTime.now(),
+                              firstDate: DateTime(2020),
+                              lastDate: DateTime(2030),
+                            );
+                            if (picked != null) {
+                              setDialogState(() {
+                                selectedDate = picked;
+                                selectedDay = picked.weekday;
+                              });
+                            }
+                          },
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 12),
+                            decoration: BoxDecoration(
+                              color: ctx.surfaceMutedColor,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: ctx.borderColor),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.event_rounded, size: 20),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Ngày học cụ thể (tùy chọn)',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: ctx.textSecondaryColor,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        selectedDate != null
+                                            ? '${selectedDate!.day.toString().padLeft(2, '0')}/${selectedDate!.month.toString().padLeft(2, '0')}/${selectedDate!.year}'
+                                            : (item?.classDate ??
+                                                'Chọn ngày (định dạng YYYY-MM-DD)'),
+                                        style: TextStyle(
+                                          fontSize: 13.5,
+                                          fontWeight: selectedDate != null
+                                              ? FontWeight.bold
+                                              : FontWeight.normal,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                if (selectedDate != null)
+                                  IconButton(
+                                    icon: const Icon(Icons.clear_rounded,
+                                        size: 18),
+                                    onPressed: () => setDialogState(
+                                        () => selectedDate = null),
+                                    visualDensity: VisualDensity.compact,
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+
                         // Thứ trong tuần
                         DropdownButtonFormField<int>(
-                          value: selectedDay,
+                          initialValue: selectedDay,
                           decoration: InputDecoration(
                             labelText: 'Thứ trong tuần *',
                             prefixIcon: const Icon(Icons.calendar_today_rounded),
@@ -391,6 +680,225 @@ class _ImageTimetableImportDialogState
                             if (val != null) {
                               setDialogState(() => selectedDay = val);
                             }
+                          },
+                        ),
+                        const SizedBox(height: 14),
+
+                        // Tiết học (startPeriod & endPeriod)
+                        Builder(
+                          builder: (bCtx) {
+                            final currentMapping = resolvePeriodMapping(
+                              startPeriodController.text,
+                              endPeriodController.text,
+                            );
+
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: TextFormField(
+                                        controller: startPeriodController,
+                                        keyboardType: TextInputType.number,
+                                        decoration: InputDecoration(
+                                          labelText: 'Tiết bắt đầu',
+                                          hintText: 'VD: 1',
+                                          prefixIcon: const Icon(
+                                              Icons.timer_outlined,
+                                              size: 20),
+                                          filled: true,
+                                          fillColor: ctx.surfaceMutedColor,
+                                          border: OutlineInputBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(12),
+                                          ),
+                                        ),
+                                        onChanged: (_) {
+                                          setDialogState(() {
+                                            if (autoSyncTimeWithPeriod) {
+                                              final m = resolvePeriodMapping(
+                                                startPeriodController.text,
+                                                endPeriodController.text,
+                                              );
+                                              if (m != null) {
+                                                startTime =
+                                                    _parseTime(m.startTime);
+                                                endTime = _parseTime(m.endTime);
+                                              }
+                                            }
+                                          });
+                                        },
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: TextFormField(
+                                        controller: endPeriodController,
+                                        keyboardType: TextInputType.number,
+                                        decoration: InputDecoration(
+                                          labelText: 'Tiết kết thúc',
+                                          hintText: 'VD: 4',
+                                          prefixIcon: const Icon(
+                                              Icons.timer_outlined,
+                                              size: 20),
+                                          filled: true,
+                                          fillColor: ctx.surfaceMutedColor,
+                                          border: OutlineInputBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(12),
+                                          ),
+                                        ),
+                                        onChanged: (_) {
+                                          setDialogState(() {
+                                            if (autoSyncTimeWithPeriod) {
+                                              final m = resolvePeriodMapping(
+                                                startPeriodController.text,
+                                                endPeriodController.text,
+                                              );
+                                              if (m != null) {
+                                                startTime =
+                                                    _parseTime(m.startTime);
+                                                endTime = _parseTime(m.endTime);
+                                              }
+                                            }
+                                          });
+                                        },
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                // Hiển thị badge quy đổi giờ chính thức hoặc cảnh báo
+                                if (currentMapping != null) ...[
+                                  const SizedBox(height: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 10, vertical: 8),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.primary
+                                          .withValues(alpha: 0.08),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                          color: AppColors.primary
+                                              .withValues(alpha: 0.25)),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Icon(
+                                          Icons.auto_awesome_rounded,
+                                          size: 16,
+                                          color: AppColors.primary,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            'Tiết ${currentMapping.startPeriod}–${currentMapping.endPeriod} (${currentMapping.timeRangeText}, ${currentMapping.actualStudyMinutes} phút học)',
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600,
+                                              color: AppColors.primary,
+                                            ),
+                                          ),
+                                        ),
+                                        InkWell(
+                                          onTap: () {
+                                            setDialogState(() {
+                                              startTime = _parseTime(
+                                                  currentMapping.startTime);
+                                              endTime = _parseTime(
+                                                  currentMapping.endTime);
+                                            });
+                                          },
+                                          borderRadius:
+                                              BorderRadius.circular(6),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 8, vertical: 4),
+                                            decoration: BoxDecoration(
+                                              color: AppColors.primary
+                                                  .withValues(alpha: 0.12),
+                                              borderRadius:
+                                                  BorderRadius.circular(6),
+                                            ),
+                                            child: const Text(
+                                              'Áp dụng giờ',
+                                              style: TextStyle(
+                                                fontSize: 11.5,
+                                                fontWeight: FontWeight.bold,
+                                                color: AppColors.primary,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ] else if (startPeriodController.text
+                                        .trim()
+                                        .isNotEmpty &&
+                                    endPeriodController.text
+                                        .trim()
+                                        .isNotEmpty) ...[
+                                  const SizedBox(height: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 10, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color:
+                                          AppColors.warning.withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                          color: AppColors.warning
+                                              .withValues(alpha: 0.3)),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Icon(
+                                          Icons.info_outline_rounded,
+                                          size: 16,
+                                          color: AppColors.warning,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            'Tiết ${startPeriodController.text.trim()}–${endPeriodController.text.trim()} chưa có cấu hình giờ chính thức. Vui lòng chọn giờ học thủ công bên dưới.',
+                                            style: TextStyle(
+                                              fontSize: 11.5,
+                                              color: ctx.textPrimaryColor,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                                const SizedBox(height: 6),
+                                Row(
+                                  children: [
+                                    SizedBox(
+                                      height: 24,
+                                      width: 24,
+                                      child: Checkbox(
+                                        value: autoSyncTimeWithPeriod,
+                                        onChanged: (val) {
+                                          setDialogState(() =>
+                                              autoSyncTimeWithPeriod =
+                                                  val ?? true);
+                                        },
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Tự động đồng bộ giờ học theo bảng quy đổi tiết',
+                                      style: TextStyle(
+                                        fontSize: 11.5,
+                                        color: ctx.textSecondaryColor,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            );
                           },
                         ),
                         const SizedBox(height: 14),
@@ -421,7 +929,7 @@ class _ImageTimetableImportDialogState
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Text('Giờ bắt đầu',
+                                      Text('Giờ bắt đầu *',
                                           style: TextStyle(
                                               fontSize: 11,
                                               color: ctx.textSecondaryColor)),
@@ -461,7 +969,7 @@ class _ImageTimetableImportDialogState
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Text('Giờ kết thúc',
+                                      Text('Giờ kết thúc *',
                                           style: TextStyle(
                                               fontSize: 11,
                                               color: ctx.textSecondaryColor)),
@@ -544,6 +1052,13 @@ class _ImageTimetableImportDialogState
                     final startStr = _formatTime(startTime);
                     final endStr = _formatTime(endTime);
                     final subName = subjectController.text.trim();
+                    final sPeriod =
+                        int.tryParse(startPeriodController.text.trim());
+                    final ePeriod =
+                        int.tryParse(endPeriodController.text.trim());
+                    final cDateStr = selectedDate != null
+                        ? '${selectedDate!.year}-${selectedDate!.month.toString().padLeft(2, '0')}-${selectedDate!.day.toString().padLeft(2, '0')}'
+                        : item?.classDate;
 
                     // Xác định lỗi giờ
                     final startMin = startTime.hour * 60 + startTime.minute;
@@ -580,11 +1095,17 @@ class _ImageTimetableImportDialogState
                       matchedSubjectName: subName,
                       isNewSubject: isNewSub,
                       dayOfWeek: selectedDay,
+                      classDate: cDateStr,
+                      startPeriod: sPeriod,
+                      endPeriod: ePeriod,
                       startTime: startStr,
                       endTime: endStr,
                       location: locationController.text.trim(),
                       teacher: teacherController.text.trim(),
                       notes: notesController.text.trim(),
+                      confidence: item?.confidence ?? 1.0,
+                      needsReview: false,
+                      reviewReason: null,
                       isSelected: !status.hasError,
                       status: status,
                       errorMessage: errorMsg,
@@ -629,7 +1150,7 @@ class _ImageTimetableImportDialogState
 
   Future<void> _saveAndImport() async {
     final selectedItems =
-        _items.where((i) => i.isSelected && !i.hasError).toList();
+        _items.where((i) => i.isSelected && i.isValidForSave).toList();
 
     if (selectedItems.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -670,21 +1191,38 @@ class _ImageTimetableImportDialogState
         }
       }
 
-      // 2. Chuyển thành ClassSchedule
-      final List<ClassSchedule> schedulesToSave = [];
-      for (final item in selectedItems) {
-        final targetSubId = item.matchedSubjectId ??
-            (widget.subjects.isNotEmpty
-                ? widget.subjects.first.id
-                : 'subj_default');
-        schedulesToSave.add(item.toClassSchedule(targetSubjectId: targetSubId));
-      }
+      // 2. Lưu theo chế độ đã chọn: Buổi học theo ngày (Occurrence) hoặc Lịch cố định (ClassSchedule)
+      if (_saveAsOccurrence && widget.onImportOccurrences != null) {
+        final List<ClassScheduleOccurrence> occurrencesToSave = [];
+        for (final item in selectedItems) {
+          final targetSubId = item.matchedSubjectId ??
+              (widget.subjects.isNotEmpty
+                  ? widget.subjects.first.id
+                  : 'subj_default');
+          occurrencesToSave
+              .add(item.toOccurrence(targetSubjectId: targetSubId));
+        }
 
-      // 3. Thực hiện lưu qua repository
-      await widget.onImport(
-        schedules: schedulesToSave,
-        newSubjects: newSubjectsToCreate,
-      );
+        await widget.onImportOccurrences!(
+          occurrences: occurrencesToSave,
+          newSubjects: newSubjectsToCreate,
+        );
+      } else {
+        final List<ClassSchedule> schedulesToSave = [];
+        for (final item in selectedItems) {
+          final targetSubId = item.matchedSubjectId ??
+              (widget.subjects.isNotEmpty
+                  ? widget.subjects.first.id
+                  : 'subj_default');
+          schedulesToSave
+              .add(item.toClassSchedule(targetSubjectId: targetSubId));
+        }
+
+        await widget.onImport(
+          schedules: schedulesToSave,
+          newSubjects: newSubjectsToCreate,
+        );
+      }
 
       if (!mounted) return;
       Navigator.of(context).pop();
@@ -695,6 +1233,12 @@ class _ImageTimetableImportDialogState
         _ocrStatus = OcrEngineStatus.error;
         _statusMessage = 'Lỗi khi lưu dữ liệu lịch học: $e';
       });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Lỗi khi lưu lịch học: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
     }
   }
 
@@ -720,7 +1264,7 @@ class _ImageTimetableImportDialogState
     final mediaQuery = MediaQuery.of(context);
     final dialogHeight = mediaQuery.size.height * 0.88;
     final validSelectedCount =
-        _items.where((i) => i.isSelected && !i.hasError).length;
+        _items.where((i) => i.isSelected && i.isValidForSave).length;
 
     return Dialog(
       backgroundColor: context.surfaceColor,
@@ -784,7 +1328,7 @@ class _ImageTimetableImportDialogState
               ),
               const SizedBox(height: 2),
               Text(
-                'Hỗ trợ JPG, JPEG, PNG • Ưu tiên xử lý cục bộ trên thiết bị',
+                'Hỗ trợ JPG, JPEG, PNG • Gemini Vision nhận diện đa tuần',
                 style: TextStyle(
                   fontSize: 12,
                   color: context.textSecondaryColor,
@@ -1005,24 +1549,36 @@ class _ImageTimetableImportDialogState
         else if (_ocrStatus == OcrEngineStatus.error)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    key: const ValueKey('rescan_ocr_button'),
-                    onPressed: () => _runRecognition(_selectedImage!),
-                    icon: const Icon(Icons.refresh_rounded, size: 18),
-                    label: const Text('Quét lại ảnh này'),
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        key: const ValueKey('rescan_ocr_button'),
+                        onPressed: () => _runRecognition(_selectedImage!),
+                        icon: const Icon(Icons.refresh_rounded, size: 18),
+                        label: const Text('Thử lại với AI'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: FilledButton.icon(
+                        key: const ValueKey('try_another_image_button'),
+                        onPressed: _showImageSourcePicker,
+                        icon: const Icon(Icons.photo_library_outlined, size: 18),
+                        label: const Text('Thử ảnh khác'),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: FilledButton.icon(
-                    key: const ValueKey('try_another_image_button'),
-                    onPressed: _showImageSourcePicker,
-                    icon: const Icon(Icons.photo_library_outlined, size: 18),
-                    label: const Text('Thử ảnh khác'),
-                  ),
+                const SizedBox(height: 6),
+                OutlinedButton.icon(
+                  key: const ValueKey('try_mlkit_fallback_button'),
+                  onPressed: () => _runMlKitFallback(_selectedImage!),
+                  icon: const Icon(Icons.phonelink_setup_rounded, size: 18),
+                  label: const Text('Thử nhận diện bằng ML Kit trên thiết bị'),
                 ),
               ],
             ),
@@ -1031,8 +1587,9 @@ class _ImageTimetableImportDialogState
         const SizedBox(height: 6),
 
         // 3. Tiêu đề danh sách & nút thêm dòng
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             Text(
               'Danh sách buổi học (${_items.length})',
@@ -1043,6 +1600,7 @@ class _ImageTimetableImportDialogState
               ),
             ),
             Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 if (_ocrStatus == OcrEngineStatus.success)
                   TextButton.icon(
@@ -1063,6 +1621,11 @@ class _ImageTimetableImportDialogState
             ),
           ],
         ),
+        if (_items.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          _buildSaveModeSelector(context),
+          _buildStatisticsChips(context),
+        ],
         const SizedBox(height: 8),
 
         // 4. Danh sách các buổi học xem trước
@@ -1145,6 +1708,13 @@ class _ImageTimetableImportDialogState
                   img.bytes,
                   fit: BoxFit.contain,
                   width: double.infinity,
+                  errorBuilder: (context, error, stackTrace) => Center(
+                    child: Icon(
+                      Icons.image_outlined,
+                      size: 36,
+                      color: context.textSecondaryColor,
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -1168,15 +1738,15 @@ class _ImageTimetableImportDialogState
         icon = Icons.photo_library_outlined;
         title = 'Ảnh đã sẵn sàng';
         desc =
-            'Nhấn nút "Quét & Nhận diện thời khóa biểu" để Google ML Kit On-Device bắt đầu trích xuất.';
+            'Nhấn nút "Quét & Nhận diện thời khóa biểu" để AI Gemini Vision phân tích tự động.';
         break;
       case OcrEngineStatus.processing:
         bg = context.primaryContainerColor;
         fg = AppColors.primary;
         icon = Icons.sync_rounded;
-        title = 'Đang nhận diện chữ On-Device...';
-        desc =
-            'Google ML Kit đang quét các khối chữ và tọa độ bảng trong ảnh cục bộ.';
+        title = 'Đang phân tích thời khóa biểu...';
+        desc = _statusMessage ??
+            'Gemini Vision đang phân tích cấu trúc thời khóa biểu từ ảnh.';
         break;
       case OcrEngineStatus.unsupported:
         bg = AppColors.primary.withValues(alpha: 0.1);
@@ -1184,15 +1754,15 @@ class _ImageTimetableImportDialogState
         icon = Icons.info_outline_rounded;
         title = 'Môi trường Web Preview';
         desc =
-            'Google ML Kit On-Device OCR chỉ khả dụng trên thiết bị di động (Android / iOS). '
+            'Tính năng quét ảnh tối ưu trên thiết bị di động (Android / iOS). '
             'Trên Web, bạn có thể xem ảnh phía trên và bấm "+ Thêm buổi học" để lập lịch thủ công.';
         break;
       case OcrEngineStatus.error:
         bg = AppColors.error.withValues(alpha: 0.12);
         fg = AppColors.error;
         icon = Icons.error_outline_rounded;
-        title = 'Không nhận diện được nội dung';
-        desc = _statusMessage ?? 'Không thể phân tích văn bản từ ảnh.';
+        title = 'Không thể nhận diện thời khóa biểu';
+        desc = _statusMessage ?? 'Đã xảy ra sự cố khi phân tích ảnh.';
         break;
       case OcrEngineStatus.success:
         bg = AppColors.success.withValues(alpha: 0.12);
@@ -1402,6 +1972,110 @@ class _ImageTimetableImportDialogState
                     ],
                   ),
                 ],
+                // Dải thông tin bổ sung: Ngày học, Tiết, Độ tin cậy (Phase 6D)
+                if (item.classDate != null ||
+                    (item.startPeriod != null && item.endPeriod != null) ||
+                    item.confidence != null) ...[
+                  const SizedBox(height: 4),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: [
+                      if (item.classDate != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: context.surfaceMutedColor,
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: context.borderColor),
+                          ),
+                          child: Text(
+                            '📅 ${item.classDate}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                              color: context.textPrimaryColor,
+                            ),
+                          ),
+                        ),
+                      if (item.startPeriod != null && item.endPeriod != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: context.surfaceMutedColor,
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: context.borderColor),
+                          ),
+                          child: Text(
+                            item.actualStudyMinutes > 0
+                                ? 'Tiết ${item.startPeriod}-${item.endPeriod} (${item.actualStudyMinutes}p)'
+                                : 'Tiết ${item.startPeriod}-${item.endPeriod}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                              color: context.textPrimaryColor,
+                            ),
+                          ),
+                        ),
+                      if (item.confidence != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: item.confidence! >= 0.8
+                                ? AppColors.success.withValues(alpha: 0.12)
+                                : AppColors.warning.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            'Tin cậy: ${(item.confidence! * 100).toInt()}%',
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w600,
+                              color: item.confidence! >= 0.8
+                                  ? AppColors.success
+                                  : AppColors.warning,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+                if (item.needsReview &&
+                    item.reviewReason != null &&
+                    item.reviewReason!.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: AppColors.warning.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                          color: AppColors.warning.withValues(alpha: 0.4)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.info_outline_rounded,
+                            size: 13, color: AppColors.warning),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            'Cần xem xét: ${item.reviewReason}',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: AppColors.warning,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 if (item.hasError) ...[
                   const SizedBox(height: 4),
                   Text(
@@ -1431,18 +2105,176 @@ class _ImageTimetableImportDialogState
     );
   }
 
+  Widget _buildSaveModeSelector(BuildContext context) {
+    if (widget.onImportOccurrences == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Container(
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: context.surfaceMutedColor,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: context.borderColor),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: InkWell(
+                onTap: () => setState(() => _saveAsOccurrence = true),
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  decoration: BoxDecoration(
+                    color: _saveAsOccurrence
+                        ? context.primaryContainerColor
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Center(
+                    child: Text(
+                      '📅 Lịch theo ngày (Khuyến nghị)',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: _saveAsOccurrence
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                        color: _saveAsOccurrence
+                            ? AppColors.primary
+                            : context.textSecondaryColor,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            Expanded(
+              child: InkWell(
+                onTap: () => setState(() => _saveAsOccurrence = false),
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  decoration: BoxDecoration(
+                    color: !_saveAsOccurrence
+                        ? context.primaryContainerColor
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Center(
+                    child: Text(
+                      '🔄 Lặp lại cố định tuần',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: !_saveAsOccurrence
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                        color: !_saveAsOccurrence
+                            ? AppColors.primary
+                            : context.textSecondaryColor,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatisticsChips(BuildContext context) {
+    final total = _items.length;
+    final valid = _items.where((i) => i.isValidForSave).length;
+    final error = _items.where((i) => i.hasError).length;
+    final conflict =
+        _items.where((i) => i.status == ImportItemStatus.warningOverlap).length;
+    final skipped = _items.where((i) => !i.isSelected).length;
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          _buildStatPill(
+            context,
+            label: 'Tổng: $total',
+            color: context.textSecondaryColor,
+            bgColor: context.surfaceMutedColor,
+          ),
+          const SizedBox(width: 6),
+          _buildStatPill(
+            context,
+            label: 'Hợp lệ: $valid',
+            color: AppColors.success,
+            bgColor: AppColors.success.withValues(alpha: 0.12),
+          ),
+          if (error > 0) ...[
+            const SizedBox(width: 6),
+            _buildStatPill(
+              context,
+              label: 'Cần sửa: $error',
+              color: AppColors.error,
+              bgColor: AppColors.error.withValues(alpha: 0.12),
+            ),
+          ],
+          if (conflict > 0) ...[
+            const SizedBox(width: 6),
+            _buildStatPill(
+              context,
+              label: 'Trùng giờ: $conflict',
+              color: AppColors.warning,
+              bgColor: AppColors.warning.withValues(alpha: 0.12),
+            ),
+          ],
+          if (skipped > 0) ...[
+            const SizedBox(width: 6),
+            _buildStatPill(
+              context,
+              label: 'Bỏ qua: $skipped',
+              color: context.textSecondaryColor,
+              bgColor: context.surfaceMutedColor,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatPill(
+    BuildContext context, {
+    required String label,
+    required Color color,
+    required Color bgColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11.5,
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
+      ),
+    );
+  }
+
   Widget _buildFooter(BuildContext context, int validCount) {
     return Row(
       children: [
         OutlinedButton(
           key: const ValueKey('cancel_image_import_button'),
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: _isProcessing ? null : () => Navigator.of(context).pop(),
           child: const Text('Hủy'),
         ),
         const Spacer(),
         FilledButton.icon(
           key: const ValueKey('confirm_save_image_schedule_button'),
-          onPressed: validCount > 0 ? _saveAndImport : null,
+          onPressed: validCount > 0 && !_isProcessing ? _saveAndImport : null,
           icon: const Icon(Icons.check_rounded, size: 18),
           label: Text('Lưu $validCount lịch học'),
         ),

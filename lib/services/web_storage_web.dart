@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:web/web.dart' as web;
 import '../models/class_schedule.dart';
+import '../models/class_schedule_occurrence.dart';
 import '../models/study_activity.dart';
 import '../models/user_profile.dart';
 
@@ -146,6 +147,43 @@ class WebScheduleStorage {
   static void clearSchedules() {
     try {
       web.window.localStorage.removeItem(_scheduleStorageKey);
+    } catch (_) {}
+  }
+}
+
+/// Triển khai lưu trữ buổi học theo ngày (occurrences) trên Web sử dụng localStorage.
+class WebOccurrenceStorage {
+  static const String _occurrenceStorageKey = 'exampilot_web_occurrences';
+
+  static List<ClassScheduleOccurrence> loadOccurrences() {
+    try {
+      final raw = web.window.localStorage.getItem(_occurrenceStorageKey);
+      if (raw != null && raw.isNotEmpty) {
+        final dynamic decoded = jsonDecode(raw);
+        if (decoded is List) {
+          return decoded
+              .map(
+                (item) => ClassScheduleOccurrence.fromMap(
+                  Map<String, dynamic>.from(item as Map),
+                ),
+              )
+              .toList();
+        }
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  static void saveOccurrences(List<ClassScheduleOccurrence> occurrences) {
+    try {
+      final list = occurrences.map((o) => o.toMap()).toList();
+      web.window.localStorage.setItem(_occurrenceStorageKey, jsonEncode(list));
+    } catch (_) {}
+  }
+
+  static void clearOccurrences() {
+    try {
+      web.window.localStorage.removeItem(_occurrenceStorageKey);
     } catch (_) {}
   }
 }

@@ -7,6 +7,7 @@ import 'package:excel/excel.dart';
 import '../models/class_schedule.dart';
 import '../models/subject.dart';
 import '../models/timetable_import_model.dart';
+import 'class_period_time_mapper.dart';
 
 /// Dịch vụ đọc, phân tích và chuẩn hóa thời khóa biểu từ tệp CSV và Excel (.xlsx)
 class TimetableImportService {
@@ -92,19 +93,67 @@ class TimetableImportService {
       final location = _extractCellValue(row, colMap.locationCol)?.trim() ?? '';
       final notes = _extractCellValue(row, colMap.notesCol)?.trim() ?? '';
 
-      // Trường hợp cột thời gian gộp chung (ví dụ "08:00 - 09:30")
-      if ((rawStart == null || rawStart.isEmpty) && colMap.combinedTimeCol != null) {
+      int? detectedStartPeriod;
+      int? detectedEndPeriod;
+
+      // 1. Kiểm tra nếu cột bắt đầu / kết thúc chứa số tiết (ví dụ: 1 và 4)
+      if (rawStart != null && rawStart.isNotEmpty) {
+        final m = RegExp(r'^(?:tiết\s*)?(\d{1,2})$', caseSensitive: false)
+            .firstMatch(rawStart.trim());
+        if (m != null) {
+          detectedStartPeriod = int.tryParse(m.group(1)!);
+        }
+      }
+      if (rawEnd != null && rawEnd.isNotEmpty) {
+        final m = RegExp(r'^(?:tiết\s*)?(\d{1,2})$', caseSensitive: false)
+            .firstMatch(rawEnd.trim());
+        if (m != null) {
+          detectedEndPeriod = int.tryParse(m.group(1)!);
+        }
+      }
+
+      // 2. Trường hợp cột thời gian gộp chung (ví dụ "08:00 - 09:30" hoặc "Tiết 1-4" hoặc "1-4")
+      if (colMap.combinedTimeCol != null) {
         final combined = _extractCellValue(row, colMap.combinedTimeCol);
         if (combined != null && combined.isNotEmpty) {
-          final splitTimes = _splitCombinedTime(combined);
-          rawStart = splitTimes.$1;
-          rawEnd = splitTimes.$2;
+          final periodMatch = RegExp(
+            r'(?:tiết\s*)?\(?(\d{1,2})\s*[-–~tođến]\s*(\d{1,2})\)?',
+            caseSensitive: false,
+          ).firstMatch(combined);
+          if (periodMatch != null) {
+            detectedStartPeriod ??= int.tryParse(periodMatch.group(1)!);
+            detectedEndPeriod ??= int.tryParse(periodMatch.group(2)!);
+          }
+
+          if (rawStart == null || rawStart.isEmpty) {
+            final splitTimes = _splitCombinedTime(combined);
+            rawStart = splitTimes.$1;
+            rawEnd = splitTimes.$2;
+          }
         }
       }
 
       final parsedDay = _parseDayOfWeek(rawDay);
-      final parsedStart = _parseTime(rawStart);
-      final parsedEnd = _parseTime(rawEnd);
+      var parsedStart = _parseTime(rawStart);
+      var parsedEnd = _parseTime(rawEnd);
+      String? periodWarning;
+
+      // Nếu chưa có giờ đồng hồ cụ thể nhưng phát hiện được số tiết học, quy đổi bằng ClassPeriodTimeMapper (Phase 6D.2)
+      if ((parsedStart == null || parsedEnd == null) &&
+          detectedStartPeriod != null &&
+          detectedEndPeriod != null) {
+        final mapping = ClassPeriodTimeMapper.mapPeriodsToTime(
+          detectedStartPeriod,
+          detectedEndPeriod,
+        );
+        if (mapping != null) {
+          parsedStart = mapping.startTime;
+          parsedEnd = mapping.endTime;
+        } else {
+          periodWarning =
+              'Tiết $detectedStartPeriod–$detectedEndPeriod chưa có cấu hình giờ chính thức';
+        }
+      }
 
       String? errorMsg;
       ImportItemStatus status = ImportItemStatus.valid;
@@ -117,10 +166,10 @@ class TimetableImportService {
         errorMsg = 'Thứ không hợp lệ hoặc bị thiếu ("$rawDay")';
       } else if (parsedStart == null) {
         status = ImportItemStatus.errorMissingField;
-        errorMsg = 'Giờ bắt đầu không hợp lệ hoặc bị thiếu ("$rawStart")';
+        errorMsg = periodWarning ?? 'Giờ bắt đầu không hợp lệ hoặc bị thiếu ("$rawStart")';
       } else if (parsedEnd == null) {
         status = ImportItemStatus.errorMissingField;
-        errorMsg = 'Giờ kết thúc không hợp lệ hoặc bị thiếu ("$rawEnd")';
+        errorMsg = periodWarning ?? 'Giờ kết thúc không hợp lệ hoặc bị thiếu ("$rawEnd")';
       } else if (!_isStartTimeBeforeEndTime(parsedStart, parsedEnd)) {
         status = ImportItemStatus.errorInvalidTime;
         errorMsg = 'Giờ bắt đầu ($parsedStart) phải trước giờ kết thúc ($parsedEnd)';
@@ -173,6 +222,8 @@ class TimetableImportService {
           matchedSubjectName: matchedName,
           isNewSubject: isNewSubject,
           dayOfWeek: parsedDay,
+          startPeriod: detectedStartPeriod,
+          endPeriod: detectedEndPeriod,
           startTime: parsedStart,
           endTime: parsedEnd,
           location: location,
@@ -388,6 +439,8 @@ class TimetableImportService {
         s.contains('start') ||
         s.contains('từ giờ') ||
         s.contains('giờ vào') ||
+        s.contains('tiết bắt đầu') ||
+        s.contains('tiết đầu') ||
         s == 'tg bd';
   }
 
@@ -396,6 +449,8 @@ class TimetableImportService {
         s.contains('end') ||
         s.contains('đến giờ') ||
         s.contains('giờ ra') ||
+        s.contains('tiết kết thúc') ||
+        s.contains('tiết cuối') ||
         s == 'tg kt';
   }
 
@@ -404,6 +459,8 @@ class TimetableImportService {
         s.contains('khung giờ') ||
         s.contains('thời gian') ||
         s.contains('tiết học') ||
+        s == 'tiết' ||
+        s.contains('tiết') ||
         s == 'time';
   }
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/class_schedule.dart';
+import '../models/class_schedule_occurrence.dart';
 import '../models/study_session.dart';
 import '../models/study_task.dart';
 import '../models/subject.dart';
@@ -47,6 +48,7 @@ class PlanScreen extends StatefulWidget {
   final ValueChanged<StudyTask>? onStartStudy;
   final ValueChanged<StudyTask>? onReschedule;
   final List<ClassSchedule>? schedules;
+  final List<ClassScheduleOccurrence>? occurrences;
   final ValueChanged<ClassSchedule>? onAddSchedule;
   final ValueChanged<ClassSchedule>? onEditSchedule;
   final ValueChanged<ClassSchedule>? onDeleteSchedule;
@@ -56,6 +58,10 @@ class PlanScreen extends StatefulWidget {
     required List<ClassSchedule> schedules,
     required List<Subject> newSubjects,
   })? onImportSchedules;
+  final Future<void> Function({
+    required List<ClassScheduleOccurrence> occurrences,
+    required List<Subject> newSubjects,
+  })? onImportOccurrences;
 
   const PlanScreen({
     super.key,
@@ -70,11 +76,13 @@ class PlanScreen extends StatefulWidget {
     this.onStartStudy,
     this.onReschedule,
     this.schedules,
+    this.occurrences,
     this.onAddSchedule,
     this.onEditSchedule,
     this.onDeleteSchedule,
     this.onToggleScheduleActive,
     this.onImportSchedules,
+    this.onImportOccurrences,
   });
 
   @override
@@ -152,6 +160,7 @@ class _PlanScreenState extends State<PlanScreen> {
       builder: (ctx) => ImageTimetableImportDialog(
         subjects: widget.subjects ?? const [],
         existingSchedules: widget.schedules ?? const [],
+        onImportOccurrences: widget.onImportOccurrences,
         onImport: ({required schedules, required newSubjects}) async {
           if (widget.onImportSchedules != null) {
             await widget.onImportSchedules!(

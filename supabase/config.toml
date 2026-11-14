@@ -1,0 +1,5 @@
+# Supabase CLI Project Configuration
+project_id = "exampilot"
+
+[functions.analyze-timetable-image]
+verify_jwt = false # Không yêu cầu JWT đăng nhập vì ExamPilot hoạt động offline/local-first

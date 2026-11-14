@@ -14,7 +14,7 @@ import '../models/understanding_level.dart';
 class DatabaseHelper {
   static const _databaseName = 'exampilot.db';
   static const int databaseVersion =
-      9; // Nâng version lên 9: Thêm cột teacher cho class_schedules (Phase 6B)
+      10; // Nâng version lên 10: Thêm bảng class_schedule_occurrences (Phase 6D)
   static const _databaseVersion = databaseVersion;
 
   static const tableTasks = 'study_tasks';
@@ -23,6 +23,7 @@ class DatabaseHelper {
   static const tableProfile = 'user_profile';
   static const tableSessions = 'study_sessions';
   static const tableClassSchedules = 'class_schedules';
+  static const tableScheduleOccurrences = 'class_schedule_occurrences';
 
   // Định nghĩa tên các cột trong bảng study_tasks
   static const columnId = 'id';
@@ -52,6 +53,24 @@ class DatabaseHelper {
   static const columnScheduleNotes = 'notes';
   static const columnScheduleIsActive = 'is_active';
   static const columnScheduleRepeatWeekly = 'repeat_weekly';
+
+  // Định nghĩa tên các cột trong bảng class_schedule_occurrences (Schema v10 - Phase 6D)
+  static const columnOccId = 'id';
+  static const columnOccScheduleId = 'schedule_id';
+  static const columnOccSubjectId = 'subject_id';
+  static const columnOccSubjectName = 'subject_name';
+  static const columnOccClassDate = 'class_date';
+  static const columnOccStartTime = 'start_time';
+  static const columnOccEndTime = 'end_time';
+  static const columnOccStartPeriod = 'start_period';
+  static const columnOccEndPeriod = 'end_period';
+  static const columnOccTeacher = 'teacher';
+  static const columnOccLocation = 'location';
+  static const columnOccNotes = 'notes';
+  static const columnOccStatus = 'status';
+  static const columnOccSource = 'source';
+  static const columnOccCreatedAt = 'created_at';
+  static const columnOccUpdatedAt = 'updated_at';
 
   // Định nghĩa tên các cột trong bảng subjects
   static const columnSubjectId = 'id';
@@ -289,6 +308,42 @@ class DatabaseHelper {
     );
   }
 
+  /// Tạo bảng `class_schedule_occurrences` và các index phục vụ Lịch học theo ngày / ghi đè (Schema v10 - Phase 6D).
+  static Future<void> createScheduleOccurrencesTable(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $tableScheduleOccurrences (
+        $columnOccId TEXT PRIMARY KEY,
+        $columnOccScheduleId TEXT,
+        $columnOccSubjectId TEXT NOT NULL,
+        $columnOccSubjectName TEXT NOT NULL,
+        $columnOccClassDate TEXT NOT NULL,
+        $columnOccStartTime TEXT NOT NULL,
+        $columnOccEndTime TEXT NOT NULL,
+        $columnOccStartPeriod INTEGER,
+        $columnOccEndPeriod INTEGER,
+        $columnOccTeacher TEXT NOT NULL DEFAULT '',
+        $columnOccLocation TEXT NOT NULL DEFAULT '',
+        $columnOccNotes TEXT NOT NULL DEFAULT '',
+        $columnOccStatus TEXT NOT NULL DEFAULT 'scheduled' CHECK ($columnOccStatus IN ('scheduled', 'cancelled', 'completed')),
+        $columnOccSource TEXT NOT NULL DEFAULT 'image_import',
+        $columnOccCreatedAt TEXT NOT NULL,
+        $columnOccUpdatedAt TEXT NOT NULL,
+        FOREIGN KEY ($columnOccScheduleId) REFERENCES $tableClassSchedules($columnScheduleId) ON DELETE CASCADE,
+        FOREIGN KEY ($columnOccSubjectId) REFERENCES $tableSubjects($columnSubjectId) ON DELETE CASCADE
+      )
+    ''');
+
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_occ_date ON $tableScheduleOccurrences($columnOccClassDate)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_occ_schedule ON $tableScheduleOccurrences($columnOccScheduleId)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_occ_subject ON $tableScheduleOccurrences($columnOccSubjectId)',
+    );
+  }
+
   /// Bổ sung các cột v7 còn thiếu vào bảng `user_profile` một cách an toàn và idempotent.
   static Future<void> upgradeProfileColumnsToV7(DatabaseExecutor db) async {
     final tableInfo = await db.rawQuery('PRAGMA table_info($tableProfile)');
@@ -397,6 +452,9 @@ class DatabaseHelper {
 
     // 6. Tạo bảng lịch học cố định theo tuần (class_schedules v8 - Phase 4.3)
     await createClassSchedulesTable(db);
+
+    // 7. Tạo bảng buổi học theo ngày / ghi đè (class_schedule_occurrences v10 - Phase 6D)
+    await createScheduleOccurrencesTable(db);
 
     // Chèn dữ liệu mẫu ban đầu cho CSDL mới tạo
     await _seedInitialSubjects(db);
@@ -679,6 +737,11 @@ class DatabaseHelper {
       // Nâng cấp bổ sung cột teacher cho class_schedules
       await createClassSchedulesTable(db);
       await upgradeClassSchedulesColumns(db);
+    }
+
+    if (oldVersion < 10) {
+      // Nâng cấp bổ sung bảng class_schedule_occurrences (Phase 6D)
+      await createScheduleOccurrencesTable(db);
     }
   }
 
